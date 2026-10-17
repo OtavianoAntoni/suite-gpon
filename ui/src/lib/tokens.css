@@ -1,0 +1,96 @@
+/* Tokens de UI DECIDIDOS (SPEC §8, 2026-10-16).
+ *
+ * Regras que valem em todo o CSS deste projeto:
+ *  - nenhuma sombra: a separação é por borda 1px;
+ *  - nenhuma animação/transição: o build QUEBRA se aparecer (scripts/no-animation.mjs);
+ *  - a densidade é do `--altura-linha` (32px), não de padding inventado por componente.
+ * NÃO use gradientes nem skeuomorfismo (SPEC §8).
+ */
+:root {
+	--cor-fundo: #fafafa;
+	--cor-superficie: #ffffff;
+	--cor-texto: #1a1a1a;
+	--cor-texto-suave: #5a5a5a;
+	--cor-borda: #e0e0e0;
+	--cor-acento: #2563eb;
+	--altura-linha: 32px;
+	--fonte-tamanho: 13.5px;
+	--espaco: 8px;
+	color-scheme: light;
+}
+
+:root[data-tema='escuro'] {
+	--cor-fundo: #121212;
+	--cor-superficie: #1e1e1e;
+	--cor-texto: #e8e8e8;
+	--cor-texto-suave: #a0a0a0;
+	--cor-borda: #2a2a2a;
+	--cor-acento: #2563eb;
+	color-scheme: dark;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	margin: 0;
+	padding: 0;
+	height: 100%;
+}
+
+body {
+	background: var(--cor-fundo);
+	color: var(--cor-texto);
+	font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Ubuntu, sans-serif;
+	font-size: var(--fonte-tamanho);
+	line-height: 1.45;
+}
+
+/* Foco sempre visível, por borda (acessibilidade AA, SPEC §8). */
+:focus-visible {
+	outline: none;
+	border-color: var(--cor-acento) !important;
+	box-shadow: none;
+}
+
+/* Controles nativos sem cara de sistema: fundo sólido + borda 1px. */
+button,
+input,
+select {
+	font: inherit;
+	color: inherit;
+	background: var(--cor-superficie);
+	border: 1px solid var(--cor-borda);
+	border-radius: 2px;
+	padding: 4px 8px;
+	min-height: 24px;
+}
+
+button:hover {
+	background: var(--cor-fundo);
+}
+
+table {
+	border-collapse: collapse;
+	width: 100%;
+}
+
+th,
+td {
+	border: 1px solid var(--cor-borda);
+	padding: 0 8px;
+	height: var(--altura-linha);
+	text-align: left;
+	white-space: nowrap;
+}
+
+th {
+	background: var(--cor-fundo);
+	font-weight: 600;
+}
+
+tbody tr:hover {
+	background: var(--cor-superficie);
+}

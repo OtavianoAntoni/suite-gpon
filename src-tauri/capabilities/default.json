@@ -1,0 +1,7 @@
+{
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "default",
+	"description": "Permissões da janela principal: só o necessário para a Fase 0 (sem shell, sem fs arbitrário).",
+	"windows": ["main"],
+	"permissions": ["core:default", "store:default", "log:default", "dialog:default"]
+}

@@ -1,0 +1,63 @@
+name: ci
+
+# Gate do repositório: os mesmos comandos que rodam na máquina do dev.
+# O lint anti-animação entra pelo `npm run build` da UI — se alguém animar a interface,
+# o build falha aqui e não chega a empacotar.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust (domínio + transporte + contrato)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependências de sistema do Tauri (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libsoup-3.0-dev librsvg2-dev \
+            build-essential curl wget file libssl-dev libxdo-dev \
+            libayatana-appindicator3-dev pkg-config
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # -j 4: build do Tauri é pesado; paralelismo alto já derrubou máquina de dev.
+      - name: cargo test
+        run: cargo test --workspace -j 4
+
+  ui:
+    name: UI (lint de animação + build estático)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: npm ci
+        run: npm ci
+
+      # `npm run build` = lint:no-anim && vite build -> é aqui que a UI flat é garantida.
+      - name: build (inclui o lint anti-animação)
+        run: npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-build
+          path: ui/build
+          retention-days: 7

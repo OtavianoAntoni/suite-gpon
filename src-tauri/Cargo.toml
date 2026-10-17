@@ -1,0 +1,25 @@
+[package]
+name = "suite-gpon"
+description = "Casca desktop (Tauri 2) da suíte unificada de gestão GPON/FTTH"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# `lib` separada de `main` é o padrão do Tauri 2: o binário só chama `run()`, e os testes
+# de integração conseguem alcançar os comandos sem abrir janela.
+[lib]
+name = "suite_gpon_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-store = "2"   # persistência de tema e do "F1 já visto" (SPEC §8, §5.1)
+tauri-plugin-log = "2"     # diagnóstico em campo (SPEC §6)
+tauri-plugin-dialog = "2"  # exportar/importar arquivo (SPEC §6)
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+gpon-domain = { path = "../crates/domain" }

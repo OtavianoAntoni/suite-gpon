@@ -1,0 +1,12 @@
+[package]
+name = "gpon-transport"
+description = "Contrato de transporte (trait Transport) + tipos canônicos de comando e resposta"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# Sem dependências externas: o contrato é std-only. A camada de rede real (tokio/russh/snmp)
+# entra atrás do trait na Fase 2, sem tocar em quem já consome o contrato.
+[dependencies]
+gpon-domain = { path = "../domain" }

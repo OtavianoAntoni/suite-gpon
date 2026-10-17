@@ -1,0 +1,13 @@
+[package]
+name = "gpon-domain"
+description = "Modelo de domínio canônico da suíte GPON/FTTH (SPEC §1) — Rust puro, sem Tauri e sem I/O"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# SEM dependências nesta fatia, de propósito:
+#  - `cargo test` roda offline (sem registry, sem hardware, sem rede);
+#  - o domínio não conhece transporte, Tauri, serde nem banco (SPEC §6: core puro, 100% testável).
+# serde/toml entram quando o manifesto de capacidades (§3.1) chegar, não antes.
+[dependencies]
