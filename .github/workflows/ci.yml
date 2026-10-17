@@ -45,7 +45,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # 26 = mesma major usada no desenvolvimento (npm 11). Antes estava 22 (npm 10) e o
+          # `npm ci` recusava o lock gerado pelo npm 11 com "package.json and package-lock.json
+          # are not in sync". O ui/.npmrc tem engine-strict=true, então divergência quebra o job.
+          node-version: 26
           cache: npm
           cache-dependency-path: ui/package-lock.json
 

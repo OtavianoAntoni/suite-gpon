@@ -1,0 +1,20 @@
+# Catálogo MML do perfil MA5600T — comparar com fixtures/ma5800/catalogo_mml.txt.
+# Aqui o dicionário difere em nomes e em granularidade (ex.: listagem por frame/slot/porta).
+# Placeholder de fixture: os nomes reais entram com a coleta de campo (Fase 2, §7.3).
+
+list_sources=display device
+test_connectivity=display device
+list_olts=display ne-info
+get_olt_info=display version
+list_pon_ports=display port state
+list_onus=display ont info by-frame-slot-port
+find_onu_by_sn=display ont info by-sn
+get_onu=display ont info by-id
+get_onu_auth_mode=display ont auth
+list_profiles=display profile
+list_alarms=display alarm
+export_inventory=export ont
+authorize_onu=ont add by-sn
+deauthorize_onu=ont del
+reset_onu=ont reset by-id
+set_onu_description=ont desc

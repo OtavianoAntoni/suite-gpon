@@ -1,0 +1,12 @@
+[package]
+name = "mock-ne-huawei"
+description = "Mock de NE Huawei dirigido por fixtures, um perfil por família (MA5800 / MA5600T)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# Só os dois crates nossos. Nada de rede, nada de serde: as fixtures são texto simples lido do disco.
+[dependencies]
+gpon-domain = { path = "../domain" }
+gpon-transport = { path = "../transport" }

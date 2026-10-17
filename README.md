@@ -26,6 +26,12 @@ crates/
     src/error.rs         TransportError: NaoSuportado/NaoEncontrado/FalhaDoNe/Rede/RespostaInvalida
     src/testing.rs       InMemoryTransport — o "NE" das Fases 0/1, com os dois perfis de fixture
     tests/list_olts_in_memory.rs
+  mock-ne-huawei/      o "NE" das Fases 0/1 — fixtures por família (MA5800 e MA5600T)
+    fixtures/ma5800/     dados.txt + catalogo_mml.txt (dicionário MML desta família)
+    fixtures/ma5600t/    dados.txt + catalogo_mml.txt
+    src/lib.rs           carrega a fixture no InMemoryTransport e valida campo a campo
+    src/bin/             CLI: --model ma5800|ma5600t [--catalogo]
+    tests/por_perfil.rs  os 16 comandos rodando DUAS vezes (um teste por op × perfil)
 src-tauri/             casca desktop (comandos Tauri 2 + capabilities mínimas)
 ui/                    SvelteKit 3 + Svelte 5 + Bits UI; build estático em ui/build
 ```
@@ -33,7 +39,7 @@ ui/                    SvelteKit 3 + Svelte 5 + Bits UI; build estático em ui/b
 ## Rodar
 
 ```bash
-cargo test --workspace -j 4            # 32 testes: 19 domínio + 10 transporte + 3 contrato da UI
+cargo test --workspace -j 4            # 71 testes: 19 domínio + 10 transporte + 39 mock + 3 contrato da UI
 cargo test -p gpon-domain --offline    # caminho rápido (sem compilar o Tauri)
 bash scripts/verificar.sh              # gate completo: testes + lint de UI + build + régua da spec
 ```
@@ -77,10 +83,23 @@ GPON_SPEC=/caminho/para/SPEC.md cargo test -p gpon-domain
 |---|---|---|
 | 1 | Esqueleto Tauri 2.x + SvelteKit/Svelte 5 + Bits UI, tema e tokens | **pronto** — UI builda (260 KB), tema claro/escuro persistido, navegação por seções, atalhos, casca Rust compila |
 | 2 | Core de domínio + trait `Transport` + manifesto de capacidades | **domínio e `Transport` prontos e testados**; falta o `capabilities.toml` |
-| 3 | `mock-ne-huawei` com os 2 perfis (`ma5800` / `ma5600t`) | **mock em memória** com os dois perfis pronto; **fixtures em arquivo pendentes** |
-| 4 | As 12 leituras da §7.1 ligadas na UI | pendente (o contrato dos 16 comandos já existe) |
+| 3 | `mock-ne-huawei` com os 2 perfis (`ma5800` / `ma5600t`) | **pronto** — fixtures em arquivo por família, catálogo MML por perfil, 32 testes (16 operações × 2 perfis) |
+| 4 | As 12 leituras da §7.1 ligadas na UI | pendente (contrato e mock já existem; falta ligar na tela) |
 | 5 | Matriz de capacidades (Ctrl+Shift+C) | **parcial** — tabela 33×4 na tela; falta a leitura do manifesto |
 | 6 | Badge "via {módulo}" (§3.4) + painel F1 (§5.1) | **parcial** — badge na tela; F1 em esqueleto |
+
+### O mock, por linha de comando
+
+```bash
+cargo run -q -p mock-ne-huawei --                          # lista os perfis
+cargo run -q -p mock-ne-huawei -- --model ma5800           # resumo + self-test do perfil
+cargo run -q -p mock-ne-huawei -- --model ma5600t --catalogo   # + dicionário MML da família
+cargo run -q -p mock-ne-huawei -- --model xyz              # erro de perfil desconhecido (exit 2)
+```
+
+As fixtures são texto simples (`tipo|campo=valor|...`, uma linha por registro). O que muda entre
+famílias é o **dicionário MML** e os números do equipamento — o transporte e o contrato são os mesmos.
+Os nomes MML são **placeholder de fixture**; os reais entram com a coleta de campo (Fase 2).
 
 ## CI e qualidade
 

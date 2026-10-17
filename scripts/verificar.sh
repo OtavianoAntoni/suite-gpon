@@ -34,7 +34,8 @@ else
 fi
 
 etapa "4/4 SPEC: régua estrutural (só onde a spec existe)"
-REGUA="$HOME/.hermes/profiles/netdev/cache/scratch/v053_verify.sh"
+# Pega a régua MAIS NOVA por versão (sort -V), em vez de fixar um número que envelhece:
+REGUA=$(ls -1 "$HOME/.hermes/profiles/netdev/cache/scratch"/v[0-9]*_verify.sh 2>/dev/null | sort -V | tail -1)
 SPEC="${GPON_SPEC:-$HOME/.hermes/profiles/netdev/artifacts/SPEC-suite-gpon-rust-tauri.md}"
 if [ -f "$REGUA" ] && [ -f "$SPEC" ]; then
 	if bash "$REGUA" >/dev/null 2>&1; then ok "régua da spec (exit 0)"; else falha "régua da spec"; fi

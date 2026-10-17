@@ -1,0 +1,20 @@
+# Catálogo MML do perfil MA5800 — o que muda entre famílias é o DICIONÁRIO, não o transporte.
+# Formato: <operacao_canonica>=<comando MML desta família>
+# Placeholder de fixture: os nomes reais entram com a coleta de campo (Fase 2, §7.3).
+
+list_sources=display device info
+test_connectivity=display device info
+list_olts=display ne info
+get_olt_info=display version
+list_pon_ports=display port state
+list_onus=display ont info by-port
+find_onu_by_sn=display ont info by-sn
+get_onu=display ont info
+get_onu_auth_mode=display ont auth-mode
+list_profiles=display ont profile
+list_alarms=display alarm active
+export_inventory=export ont data
+authorize_onu=ont add
+deauthorize_onu=ont delete
+reset_onu=ont reset
+set_onu_description=ont description
