@@ -64,3 +64,53 @@ jobs:
           name: ui-build
           path: ui/build
           retention-days: 7
+
+  windows:
+    name: Windows (.exe real, medido)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: npm ci
+        working-directory: ui
+        run: npm ci
+
+      # O mesmo conjunto de testes, agora sob o alvo Windows (ABI diferente, paths diferentes).
+      - name: cargo test (Windows)
+        run: cargo test --workspace -j 4
+
+      # `tauri build` é o único jeito de embutir o frontend (feature custom-protocol).
+      - name: tauri build (release, assets embutidos)
+        run: npm --prefix ui run tauri -- build
+
+      - name: medir o .exe (critério da spec: < 20 MB no Windows)
+        shell: bash
+        run: |
+          EXE=target/release/suite-gpon.exe
+          ls -l "$EXE"
+          BYTES=$(stat -c%s "$EXE")
+          MB=$(awk -v b="$BYTES" 'BEGIN { printf "%.2f", b/1048576 }')
+          echo "TAMANHO_WINDOWS_BYTES=$BYTES" >> "$GITHUB_ENV"
+          echo "TAMANHO_WINDOWS_MB=$MB" >> "$GITHUB_ENV"
+          {
+            echo "### .exe Windows medido"
+            echo ""
+            echo "| arquivo | bytes | MB |"
+            echo "|---|---|---|"
+            echo "| \`suite-gpon.exe\` | $BYTES | $MB |"
+            echo ""
+            echo "Meta da spec: < 20 MB. Este número é do ELF? **não** — é do PE, e é o único que vale para o item 19 da §12."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: suite-gpon-windows-exe
+          path: target/release/suite-gpon.exe
+          retention-days: 14
