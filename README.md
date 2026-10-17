@@ -57,14 +57,14 @@ de desenvolvimento sem o servidor de desenvolvimento.
 Desenvolvimento (Vite + janela, com hot reload) — da RAIZ do repo:
 
 ```bash
-./ui/node_modules/.bin/tauri dev
+node ui/node_modules/@tauri-apps/cli/tauri.js dev
 ```
 
 Binário autônomo (frontend embutido, não precisa de servidor):
 
 ```bash
-./ui/node_modules/.bin/tauri build --debug    # mais rápido, binário grande
-./ui/node_modules/.bin/tauri build            # release: é o que mede a meta de tamanho (3,6 MB)
+node ui/node_modules/@tauri-apps/cli/tauri.js build --debug   # mais rápido, binário grande
+node ui/node_modules/@tauri-apps/cli/tauri.js build           # release (mede a meta de tamanho)
 ./target/release/suite-gpon
 ```
 

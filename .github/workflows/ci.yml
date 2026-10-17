@@ -88,7 +88,11 @@ jobs:
 
       # `tauri build` é o único jeito de embutir o frontend (feature custom-protocol).
       - name: tauri build (release, assets embutidos)
-        run: npm --prefix ui run tauri -- build
+        # SEMPRE da raiz do repo: a CLI procura `tauri.conf.json` a partir do cwd e ele vive
+        # em src-tauri/. `npm --prefix ui run tauri` roda com cwd=ui e a CLI entra em pânico
+        # ('Couldn't recognize the current folder as a Tauri project'). Chamar o entry point
+        # pelo node evita depender de shim .cmd/.ps1 e mantém o cwd correto.
+        run: node ui/node_modules/@tauri-apps/cli/tauri.js build
 
       - name: medir o .exe (critério da spec — menos de 20 MB no Windows)
         shell: bash
