@@ -90,7 +90,7 @@ jobs:
       - name: tauri build (release, assets embutidos)
         run: npm --prefix ui run tauri -- build
 
-      - name: medir o .exe (critério da spec: < 20 MB no Windows)
+      - name: medir o .exe (critério da spec — menos de 20 MB no Windows)
         shell: bash
         run: |
           EXE=target/release/suite-gpon.exe
