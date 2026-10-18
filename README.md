@@ -34,8 +34,11 @@ crates/
     src/lib.rs           carrega a fixture no InMemoryTransport e valida campo a campo
     src/bin/             CLI: --model ma5800|ma5600t [--catalogo]
     tests/por_perfil.rs  os 16 comandos rodando DUAS vezes (um teste por op × perfil)
+cofre/               contrato do cofre de credenciais — sem dependência (Segredo não vaza em log)
 src-tauri/             casca desktop (comandos Tauri 2 + capabilities mínimas)
-  src/ne.rs            ponte UI↔NE: 7 comandos sobre CanonicalCmd + DTOs (lógica em funções *_de)
+  src/ne.rs            ponte UI↔NE: comandos sobre CanonicalCmd + DTOs (lógica em funções *_de)
+  src/guarda.rs        trava das escritas: prévia → token de uso único → execução + auditoria
+  src/cofre_sistema.rs cofre real via `keyring` (Credential Manager / Secret Service / Keychain)
 ui/                    SvelteKit 3 + Svelte 5 + Bits UI; build estático em ui/build
   src/routes/+page.svelte   estrutura U2000: árvore Fonte>OLT>PON>ONU, Find by, tela da PON (massiva)
   src/lib/demo.ts      modo demonstração (só fora do Tauri, anunciado na tela)
@@ -44,7 +47,7 @@ ui/                    SvelteKit 3 + Svelte 5 + Bits UI; build estático em ui/b
 ## Rodar
 
 ```bash
-cargo test --workspace -j 4            # 93 testes: 19 domínio + 28 transporte + 41 mock + 5 casca
+cargo test --workspace -j 4            # 120 testes: 19 domínio + 28 transporte + 41 mock + 7 cofre + 25 casca
 cargo test -p gpon-domain --offline    # caminho rápido (sem compilar o Tauri)
 bash scripts/verificar.sh              # gate completo: testes + lint de UI + build + régua da spec
 ```
@@ -90,7 +93,7 @@ GPON_SPEC=/caminho/para/SPEC.md cargo test -p gpon-domain
 | 2 | Core de domínio + trait `Transport` + manifesto de capacidades | **domínio e `Transport` prontos e testados**; falta o `capabilities.toml` |
 | 3 | `mock-ne-huawei` com os 2 perfis (`ma5800` / `ma5600t`) | **pronto** — fixtures por família, catálogo MML por perfil, 32 testes (16 operações × 2 perfis) + busca por critério, ordem por hora de queda, volume de 1024 ONUs e fixture inválida |
 | 4 | As 12 leituras da §7.1 ligadas na UI | **parcial** — 6 ligadas com dado real (fontes, OLTs, PONs, ONUs, busca, alarmes) + a análise de massiva; faltam detalhe de ONU/OLT e export de inventário |
-| 5 | Matriz de capacidades (Ctrl+Shift+C) | **parcial** — tabela 33×4 na tela; falta a leitura do manifesto |
+| 5 | Escritas seguras (reset, descrição) | **pronto no núcleo e na tela** — cofre real, prévia obrigatória, token de uso único (120 s), auditoria JSONL |
 | 6 | Badge "via {módulo}" (§3.4) + painel F1 (§5.1) | **parcial** — badge nas telas; F1 com o resumo do escopo |
 
 ### O mock, por linha de comando
@@ -127,3 +130,17 @@ comparar horários.
 
 Fora do app (navegador), a UI entra em **modo demonstração** e avisa na tela; dentro do app, todo dado vem
 do Rust por `CanonicalCmd`.
+
+## Escrita: por que ela é chata de errar (e como a suíte trava)
+
+Nenhuma operação que muda equipamento sai de um clique só. O fluxo é sempre:
+
+1. **prévia** — a suíte mostra exatamente o que vai acontecer ("reiniciar a ONU SN — cliente (id) na
+   PON 0/1") e devolve um token de uso único, válido por 120 s, que carrega *o pedido*;
+2. **confirmação** — executa o que foi mostrado. Se a tela mudar depois da prévia, não muda o alvo;
+3. **auditoria** — sucesso, falha e tentativa com token inválido viram linha em
+   `auditoria.jsonl`, no diretório de dados do app.
+
+A credencial nunca fica em arquivo: o que o app guarda é uma referência (`cofre://lab-1`) e o segredo
+mora no cofre do sistema (Windows Credential Manager, Secret Service, Keychain). Se o cofre não estiver
+disponível, a suíte **recusa** em vez de cair para texto — cair para texto é o que os legados faziam.

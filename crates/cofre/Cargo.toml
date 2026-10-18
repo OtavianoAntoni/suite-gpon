@@ -1,0 +1,9 @@
+[package]
+name = "gpon-cofre"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Cofre de credenciais: contrato único, sem dependência. O cofre real (keyring) vive na casca."
+
+[dependencies]
+# Nenhuma, de propósito: o contrato do cofre não pode depender de como ele é implementado.

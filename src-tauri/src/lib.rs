@@ -6,6 +6,8 @@
 //! - **Nenhum runtime legado**: não há `Command::new`, nem ponte para os clientes antigos.
 //!   A Fase 0/1 fala com o `mock-ne-huawei` (ainda por vir) através do trait `Transport`.
 
+mod cofre_sistema;
+mod guarda;
 mod ne;
 
 use gpon_domain::ops::Module;
@@ -108,8 +110,23 @@ pub fn run() {
             ne::listar_onus,
             ne::buscar_onu,
             ne::massiva,
-            ne::listar_alarmes
+            ne::listar_alarmes,
+            ne::previa_escrita,
+            ne::confirmar_escrita,
+            ne::auditoria_recente,
+            ne::cofre_estado,
+            ne::cofre_gravar
         ])
+        .setup(|app| {
+            // Auditoria em arquivo, ao lado dos dados do app. Falha aqui não derruba a janela:
+            // a suíte continua auditando em memória e avisa quando não conseguir gravar.
+            use tauri::Manager;
+            if let Ok(dir) = app.path().app_data_dir() {
+                let estado = app.state::<ne::Aplicacao>();
+                estado.auditoria.definir_caminho(dir.join("auditoria.jsonl"));
+            }
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("falha ao iniciar a suíte");
 }
@@ -162,6 +179,114 @@ mod tests {
         assert_eq!(r.janela_min, 5);
         assert_eq!(r.com_hora + r.sem_hora, pon.onus as usize, "toda ONU da PON entra na conta");
         assert!(r.maior_cluster >= 1);
+    }
+
+    fn app_com_onu() -> (ne::Aplicacao, String, String, String, String, u8, u8) {
+        let app = ne::Aplicacao::carregar();
+        let fonte = ne::fontes_de(&app)[0].id.clone();
+        let olt = ne::olts_de(&app, &fonte).unwrap()[0].id.clone();
+        let pon = ne::pons_de(&app, &fonte, &olt).unwrap()[0].clone();
+        let onu = ne::onus_da_pon(&app, &fonte, &olt, Some((pon.slot, pon.porta)), None, gpon_transport::OrdemOnu::Sn)
+            .unwrap()
+            .itens[0]
+            .clone();
+        (app, fonte, olt, onu.id, onu.sn, pon.slot, pon.porta)
+    }
+
+    /// O caminho completo de uma escrita: prévia → confirmação → ack → auditoria.
+    #[test]
+    fn escrita_exige_previa_e_vai_para_a_auditoria() {
+        let (app, _fonte, olt, onu, sn, slot, porta) = app_com_onu();
+        let previa = ne::previa_escrita_de(
+            &app,
+            ne::PedidoEntrada {
+                tipo: "reset".into(),
+                olt: olt.clone(),
+                slot,
+                porta,
+                onu: onu.clone(),
+                sn: sn.clone(),
+                nome: "cliente".into(),
+                atual: String::new(),
+                novo: String::new(),
+                modo: None,
+                perfil: None,
+            },
+        )
+        .unwrap();
+
+        assert!(previa.resumo.contains("reiniciar a ONU"), "{}", previa.resumo);
+        assert_eq!(previa.operacao, "reset_onu");
+        assert_eq!(app.auditoria.total(), 0, "prévia não audita: nada aconteceu ainda");
+
+        let r = ne::confirmar_escrita_de(&app, &previa.token).unwrap();
+        assert!(r.ok);
+        assert!(r.mensagem.contains("reset"));
+        assert_eq!(app.auditoria.total(), 1);
+        assert_eq!(ne::auditoria_recente_de(&app, 5)[0].resultado, "ok");
+    }
+
+    /// Token de uso único: a segunda confirmação falha **e fica auditada como falha**.
+    #[test]
+    fn confirmar_duas_vezes_falha_e_registra_a_tentativa() {
+        let (app, _f, olt, onu, sn, slot, porta) = app_com_onu();
+        let previa = ne::previa_escrita_de(
+            &app,
+            ne::PedidoEntrada {
+                tipo: "reset".into(), olt, slot, porta, onu, sn,
+                nome: String::new(), atual: String::new(), novo: String::new(),
+                modo: None, perfil: None,
+            },
+        )
+        .unwrap();
+
+        assert!(ne::confirmar_escrita_de(&app, &previa.token).is_ok());
+        let erro = ne::confirmar_escrita_de(&app, &previa.token).expect_err("segunda vez falha");
+        assert!(erro.contains("token"), "{erro}");
+        assert_eq!(app.auditoria.total(), 2);
+        let recente = ne::auditoria_recente_de(&app, 1);
+        assert_eq!(recente[0].resultado, "falha");
+    }
+
+    /// Prévia de alvo fantasma não emite token.
+    #[test]
+    fn previa_recusa_onu_que_nao_existe() {
+        let (app, _f, olt, _onu, sn, slot, porta) = app_com_onu();
+        let e = ne::previa_escrita_de(
+            &app,
+            ne::PedidoEntrada {
+                tipo: "reset".into(), olt, slot, porta, onu: "onu-fantasma".into(), sn,
+                nome: String::new(), atual: String::new(), novo: String::new(),
+                modo: None, perfil: None,
+            },
+        )
+        .expect_err("ONU inexistente");
+        assert!(e.contains("inexistente"), "{e}");
+        assert_eq!(app.guarda.pendentes(), 0, "nenhum token emitido");
+    }
+
+    /// Descrição igual à atual não vira escrita (evita tocar o NE à toa).
+    #[test]
+    fn descricao_igual_nao_gera_escrita() {
+        let (app, fonte, olt, onu, sn, slot, porta) = app_com_onu();
+        let atual = ne::onus_da_pon(&app, &fonte, &olt, Some((slot, porta)), None, gpon_transport::OrdemOnu::Sn)
+            .unwrap()
+            .itens
+            .iter()
+            .find(|o| o.id == onu)
+            .unwrap()
+            .descricao
+            .clone();
+        let e = ne::previa_escrita_de(
+            &app,
+            ne::PedidoEntrada {
+                tipo: "descricao".into(), olt, slot, porta, onu, sn,
+                nome: String::new(), atual: atual.clone(), novo: atual,
+                modo: None, perfil: None,
+            },
+        )
+        .expect_err("nada a alterar");
+        assert!(e.contains("igual ao atual"), "{e}");
     }
 
     #[test]

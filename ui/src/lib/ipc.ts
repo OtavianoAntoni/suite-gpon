@@ -153,6 +153,44 @@ export type Alarme = {
 	ack: boolean;
 };
 
+export type Previa = {
+	token: string;
+	token_curto: string;
+	validade_s: number;
+	operacao: string;
+	alvo: string;
+	resumo: string;
+};
+
+export type Confirmacao = {
+	ok: boolean;
+	mensagem: string;
+	id_operacao: string | null;
+	operacao: string;
+	aviso_auditoria: string | null;
+};
+
+export type AuditoriaItem = {
+	quando: string;
+	operacao: string;
+	alvo: string;
+	resumo: string;
+	resultado: string;
+	mensagem: string;
+};
+
+export type PedidoEscrita = {
+	tipo: 'reset' | 'descricao' | 'autorizar' | 'desautorizar';
+	olt: string;
+	slot: number;
+	porta: number;
+	onu: string;
+	sn: string;
+	nome: string;
+	atual: string;
+	novo: string;
+};
+
 export type Ponte = {
 	fontes(): Promise<Fonte[]>;
 	olts(fonte: string): Promise<Olt[]>;
@@ -161,6 +199,9 @@ export type Ponte = {
 	buscar(fonte: string, criterio: string, valor: string): Promise<Busca>;
 	massiva(fonte: string, olt: string, pon: { slot: number; porta: number }, janelaMin: number): Promise<Massiva>;
 	alarmes(fonte: string, filtro?: string): Promise<Alarme[]>;
+	previaEscrita(pedido: PedidoEscrita): Promise<Previa>;
+	confirmarEscrita(token: string): Promise<Confirmacao>;
+	auditoria(n?: number): Promise<AuditoriaItem[]>;
 };
 
 async function real<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
@@ -183,7 +224,10 @@ export const ponte: Ponte = {
 	buscar: (fonte, criterio, valor) => real<Busca>('buscar_onu', { fonte, criterio, valor }),
 	massiva: (fonte, olt, pon, janelaMin) =>
 		real<Massiva>('massiva', { fonte, olt, slot: pon.slot, porta: pon.porta, janelaMin }),
-	alarmes: (fonte, filtro = undefined) => real<Alarme[]>('listar_alarmes', { fonte, filtro: filtro ?? null })
+	alarmes: (fonte, filtro = undefined) => real<Alarme[]>('listar_alarmes', { fonte, filtro: filtro ?? null }),
+	previaEscrita: (pedido) => real<Previa>('previa_escrita', { pedido }),
+	confirmarEscrita: (token) => real<Confirmacao>('confirmar_escrita', { token }),
+	auditoria: (n = 50) => real<AuditoriaItem[]>('auditoria_recente', { n })
 };
 
 /** Ponte usada pela tela: a real dentro do app, a de demonstração no navegador. */

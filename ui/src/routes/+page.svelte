@@ -14,12 +14,15 @@
 		listarOperacoes,
 		ponteDaTela,
 		type Alarme,
+		type AuditoriaItem,
 		type Busca,
+		type Confirmacao,
 		type Fonte,
 		type Massiva,
 		type Onu,
 		type Operacao,
 		type Olt,
+		type Previa,
 		type Pon,
 		type Ponte
 	} from '#lib/ipc';
@@ -39,7 +42,7 @@
 	let ponSel = $state<Pon | null>(null);
 	let onuSel = $state<Onu | null>(null);
 
-	let area = $state<'inventario' | 'alarmes' | 'matriz' | 'f1'>('inventario');
+	let area = $state<'inventario' | 'alarmes' | 'matriz' | 'auditoria' | 'f1'>('inventario');
 	let carregando = $state(true);
 
 	let janela = $state(5);
@@ -52,6 +55,14 @@
 	let erroBusca = $state<string | null>(null);
 
 	let alarmes = $state<Alarme[]>([]);
+
+	// Escrita: prévia → confirmação (o token é a prova de que o operador viu o que vai acontecer)
+	let previa = $state<Previa | null>(null);
+	let confirmacao = $state<Confirmacao | null>(null);
+	let novoTexto = $state('');
+	let editandoDesc = $state(false);
+	let erroEscrita = $state<string | null>(null);
+	let auditoria = $state<AuditoriaItem[]>([]);
 	let operacoes = $state<Operacao[]>([]);
 
 	type Tarefa = { hora: string; texto: string; tipo: 'ok' | 'erro' };
@@ -196,6 +207,54 @@
 		massiva ? massiva.clusters.reduce((m, c, i) => (c.tamanho > massiva!.clusters[m].tamanho ? i : m), 0) : -1
 	);
 
+	async function pedirPrevia(tipo: 'reset' | 'descricao') {
+		if (!ponte || !onuSel) return;
+		erroEscrita = null;
+		confirmacao = null;
+		try {
+			previa = await ponte.previaEscrita({
+				tipo,
+				olt: onuSel.olt,
+				slot: onuSel.slot,
+				porta: onuSel.porta,
+				onu: onuSel.id,
+				sn: onuSel.sn,
+				nome: onuSel.nome,
+				atual: onuSel.descricao,
+				novo: tipo === 'descricao' ? novoTexto : ''
+			});
+			registrar(`prévia de ${tipo}: ${previa.resumo}`);
+		} catch (e) {
+			erroEscrita = String(e).replace(/^Error:\s*/, '');
+			registrar(`prévia recusada: ${erroEscrita}`, 'erro');
+		}
+	}
+
+	async function confirmarEscrita() {
+		if (!ponte || !previa) return;
+		try {
+			confirmacao = await ponte.confirmarEscrita(previa.token);
+			registrar(`${confirmacao.operacao}: ${confirmacao.mensagem}`, confirmacao.ok ? 'ok' : 'erro');
+			previa = null;
+			editandoDesc = false;
+			await carregarAuditoria();
+		} catch (e) {
+			erroEscrita = String(e).replace(/^Error:\s*/, '');
+			previa = null;
+			registrar(`confirmação recusada: ${erroEscrita}`, 'erro');
+			await carregarAuditoria();
+		}
+	}
+
+	async function carregarAuditoria() {
+		if (!ponte) return;
+		try {
+			auditoria = await ponte.auditoria(50);
+		} catch {
+			/* a auditoria não pode derrubar a tela */
+		}
+	}
+
 	function atalhos(e: KeyboardEvent) {
 		if (e.key === 'Escape') {
 			busca = null;
@@ -252,6 +311,13 @@
 				<button class:ativo={area === 'inventario'} onclick={() => (area = 'inventario')}>Inventário</button>
 				<button class:ativo={area === 'alarmes'} onclick={carregarAlarmes}>Alarmes</button>
 				<button class:ativo={area === 'matriz'} onclick={() => (area = 'matriz')}>Matriz</button>
+				<button
+					class:ativo={area === 'auditoria'}
+					onclick={() => {
+						area = 'auditoria';
+						carregarAuditoria();
+					}}>Auditoria</button
+				>
 				<button class:ativo={area === 'f1'} onclick={() => (area = 'f1')}>F1</button>
 			</nav>
 
@@ -349,7 +415,7 @@
 			{/if}
 
 			{#if area === 'inventario'}
-				{#if ponSel}
+				{#if ponSel && !onuSel}
 					<header class="cabecalho">
 						<h1>PON {ponSel.rotulo} · {oltSel?.modelo ?? ponSel.olt}</h1>
 						<div class="controles">
@@ -408,6 +474,7 @@
 						<header class="cabecalho">
 							<h1>{onuSel.nome || onuSel.sn}</h1>
 							<span class="badge">via C · E</span>
+							<button class="link" onclick={() => (onuSel = null)}>← voltar para a PON</button>
 						</header>
 						<dl class="campos">
 							<div><dt>SN</dt><dd class="mono">{onuSel.sn}</dd></div>
@@ -420,6 +487,48 @@
 						<p class="nota">
 							nível óptico não está na Fase 1: é o primeiro item da Fase 2 (em C a evidência é <code>P</code>).
 						</p>
+
+						<div class="acoes">
+							<button onclick={() => pedirPrevia('reset')}>reiniciar ONU</button>
+							<button
+								onclick={() => {
+									editandoDesc = !editandoDesc;
+									novoTexto = onuSel?.descricao ?? '';
+								}}>editar descrição</button
+							>
+							{#if editandoDesc}
+								<input bind:value={novoTexto} placeholder="nova descrição" maxlength="128" />
+								<button onclick={() => pedirPrevia('descricao')} disabled={!novoTexto.trim()}>
+									gerar prévia
+								</button>
+							{/if}
+						</div>
+
+						{#if erroEscrita}
+							<p class="erro-linha" role="alert">{erroEscrita}</p>
+						{/if}
+
+						{#if previa}
+							<section class="dialogo" role="dialog" aria-label="Confirmação de escrita">
+								<p class="resumo-acao">{previa.resumo}</p>
+								<p class="meta">
+									prévia {previa.token_curto} · vale {previa.validade_s}s · nada foi enviado ao NE ainda
+								</p>
+								<div class="acoes">
+									<button class="perigo" onclick={confirmarEscrita}>confirmar</button>
+									<button onclick={() => (previa = null)}>cancelar</button>
+								</div>
+							</section>
+						{/if}
+
+						{#if confirmacao}
+							<section class="resultado-escrita" class:falhou={!confirmacao.ok}>
+								<strong>{confirmacao.ok ? 'executado' : 'não executado'}</strong>
+								<span>{confirmacao.mensagem}</span>
+								{#if confirmacao.id_operacao}<span class="meta">id {confirmacao.id_operacao}</span>{/if}
+								{#if confirmacao.aviso_auditoria}<span class="meta">{confirmacao.aviso_auditoria}</span>{/if}
+							</section>
+						{/if}
 					</section>
 				{:else}
 					<p class="vazio">selecione uma PON na árvore para ver as quedas agrupadas.</p>
@@ -438,6 +547,30 @@
 									<td>{a.ne}</td><td>{a.objeto}</td><td>{a.tipo}</td>
 									<td>{horaCurta(a.primeira)}</td><td>{horaCurta(a.ultima)}</td>
 									<td>{a.ack ? 'sim' : 'não'}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				{/if}
+			{:else if area === 'auditoria'}
+				<header class="cabecalho">
+					<h1>Auditoria</h1>
+					<span class="meta">{auditoria.length} registro(s) nesta sessão</span>
+					<button class="link" onclick={carregarAuditoria}>atualizar</button>
+				</header>
+				{#if !auditoria.length}
+					<p class="vazio">nenhuma escrita tentada nesta sessão.</p>
+				{:else}
+					<table class="tabela compacta">
+						<thead><tr><th>quando (UTC)</th><th>operação</th><th>alvo</th><th>resumo</th><th>resultado</th></tr></thead>
+						<tbody>
+							{#each auditoria as r, i (i)}
+								<tr>
+									<td class="mono">{r.quando}</td>
+									<td><code>{r.operacao}</code></td>
+									<td class="mono">{r.alvo}</td>
+									<td>{r.resumo}</td>
+									<td class:falha={r.resultado !== 'ok'}>{r.resultado}</td>
 								</tr>
 							{/each}
 						</tbody>
@@ -885,6 +1018,61 @@
 	}
 	.campos dd {
 		margin: 2px 0 0;
+	}
+
+	.acoes {
+		display: flex;
+		gap: 8px;
+		align-items: center;
+		margin-top: 12px;
+	}
+	.acoes button,
+	.acoes input {
+		height: 28px;
+		border: 1px solid var(--cor-borda);
+		background: var(--cor-superficie);
+		color: var(--cor-texto);
+		font: inherit;
+		padding: 0 8px;
+		border-radius: 2px;
+		cursor: pointer;
+	}
+	.acoes input {
+		cursor: text;
+		min-width: 220px;
+	}
+	.acoes .perigo {
+		border-color: #b45309;
+		color: #b45309;
+		font-weight: 600;
+	}
+
+	.dialogo {
+		margin-top: 12px;
+		border: 1px solid #b45309;
+		background: var(--cor-superficie);
+		padding: 10px 12px;
+	}
+	.dialogo .resumo-acao {
+		margin: 0 0 4px;
+		font-weight: 600;
+	}
+
+	.resultado-escrita {
+		margin-top: 12px;
+		border: 1px solid var(--cor-borda);
+		border-left: 3px solid #15803d;
+		background: var(--cor-superficie);
+		padding: 8px 12px;
+		display: flex;
+		gap: 10px;
+		align-items: center;
+	}
+	.resultado-escrita.falhou {
+		border-left-color: #b91c1c;
+	}
+	.falha {
+		color: #b91c1c;
 	}
 
 	.f1 {

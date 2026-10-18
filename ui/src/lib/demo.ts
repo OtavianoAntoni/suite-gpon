@@ -4,7 +4,21 @@
  * É um espelho mínimo das fixtures do `mock-ne-huawei`, com o mesmo formato de campo. A tela
  * anuncia "modo demonstração" no topo: dado de demo nunca se passa por dado de OLT.
  */
-import type { Alarme, Busca, Cluster, Fonte, Massiva, Olt, Onu, PaginaOnus, Pon, Ponte } from './ipc';
+import type {
+	Alarme,
+	AuditoriaItem,
+	Busca,
+	Cluster,
+	Confirmacao,
+	Fonte,
+	Massiva,
+	Olt,
+	Onu,
+	PaginaOnus,
+	Pon,
+	Ponte,
+	Previa
+} from './ipc';
 
 const FONTE: Fonte = {
 	id: 'demo-lab',
@@ -142,6 +156,34 @@ export const ponteDemo: Ponte = {
 				ack: false
 			}
 		];
+	},
+	// A demonstração **não finge** escrita: mostra a prévia e diz que nada foi enviado.
+	async previaEscrita(pedido): Promise<Previa> {
+		const alvo = pedido.nome ? `${pedido.sn} — ${pedido.nome} (${pedido.onu})` : `${pedido.sn} (${pedido.onu})`;
+		const resumo =
+			pedido.tipo === 'reset'
+				? `reiniciar a ONU ${alvo} na PON ${pedido.slot}/${pedido.porta}`
+				: `mudar a descrição de ${alvo}: "${pedido.atual}" → "${pedido.novo}"`;
+		return {
+			token: 'demo0000demo0000',
+			token_curto: 'demo0000',
+			validade_s: 120,
+			operacao: pedido.tipo === 'reset' ? 'reset_onu' : 'set_onu_description',
+			alvo: pedido.onu,
+			resumo
+		};
+	},
+	async confirmarEscrita(): Promise<Confirmacao> {
+		return {
+			ok: false,
+			mensagem: '(demonstração) nenhuma escrita foi enviada a um NE',
+			id_operacao: null,
+			operacao: 'demo',
+			aviso_auditoria: null
+		};
+	},
+	async auditoria(): Promise<AuditoriaItem[]> {
+		return [];
 	},
 	async massiva(_fonte, _olt, _pon, janelaMin): Promise<Massiva> {
 		const c = clusters(janelaMin);

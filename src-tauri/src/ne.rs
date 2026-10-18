@@ -13,6 +13,9 @@ use gpon_transport::{
     SourceId, Transport,
 };
 use mock_ne_huawei::{Fixture, ModeloNe};
+use crate::cofre_sistema::CofreDoSistema;
+use crate::guarda::{agora_utc, Auditoria, Guarda, Pedido, RegistroAuditoria, TipoEscrita};
+use gpon_cofre::{Cofre, Segredo};
 use serde::Serialize;
 
 /// Um NE carregado: o perfil (família) e o transporte que responde por ele.
@@ -26,6 +29,10 @@ pub struct Ne {
 
 pub struct Aplicacao {
     nes: Vec<Ne>,
+    /// Cofre do sistema (keyring). A UI só toca aqui por comando explícito — não há auto-seed.
+    pub cofre: Box<dyn Cofre>,
+    pub guarda: Guarda,
+    pub auditoria: Auditoria,
 }
 
 impl Aplicacao {
@@ -46,7 +53,20 @@ impl Aplicacao {
                 transporte: f.transporte,
             });
         }
-        Self { nes }
+        Self {
+            nes,
+            cofre: Box::new(CofreDoSistema::default()),
+            guarda: Guarda::default(),
+            auditoria: Auditoria::default(),
+        }
+    }
+
+    /// O pedido de escrita carrega a OLT, não a fonte: quem sabe qual NE serve é o app.
+    fn ne_por_olt(&self, olt: &str) -> Result<&Ne, String> {
+        self.nes
+            .iter()
+            .find(|ne| ne.transporte.olts.iter().any(|o| o.id.as_str() == olt))
+            .ok_or_else(|| format!("nenhuma fonte serve a OLT {olt}"))
     }
 
     fn ne(&self, fonte: &str) -> Result<&Ne, String> {
@@ -95,7 +115,7 @@ pub struct PonDto {
     pub onus: u32,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug, Clone)]
 pub struct OnuDto {
     pub id: String,
     pub olt: String,
@@ -114,7 +134,7 @@ pub struct OnuDto {
     pub ultimo_registro: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug, Clone)]
 pub struct PaginaOnusDto {
     /// Total no NE, não o tamanho da página.
     pub total: usize,
@@ -416,6 +436,220 @@ pub fn alarmes_de(
     }
 }
 
+// ---------- escrita: prévia → confirmação → auditoria (SPEC §9) ----------
+
+#[derive(serde::Deserialize)]
+pub struct PedidoEntrada {
+    pub tipo: String,
+    pub olt: String,
+    pub slot: u8,
+    pub porta: u8,
+    #[serde(default)]
+    pub onu: String,
+    #[serde(default)]
+    pub sn: String,
+    #[serde(default)]
+    pub nome: String,
+    #[serde(default)]
+    pub atual: String,
+    #[serde(default)]
+    pub novo: String,
+    #[serde(default)]
+    pub modo: Option<String>,
+    #[serde(default)]
+    pub perfil: Option<String>,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct PreviaDto {
+    pub token: String,
+    pub token_curto: String,
+    pub validade_s: u64,
+    pub operacao: String,
+    pub alvo: String,
+    /// Texto que o humano lê: "reiniciar a ONU X — cliente Y (onu-1) na PON 0/1".
+    pub resumo: String,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct ConfirmacaoDto {
+    pub ok: bool,
+    pub mensagem: String,
+    pub id_operacao: Option<String>,
+    pub operacao: String,
+    /// Aviso quando a auditoria não pôde ser gravada em arquivo (a operação NÃO é desfeita).
+    pub aviso_auditoria: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct AuditoriaDto {
+    pub quando: String,
+    pub operacao: String,
+    pub alvo: String,
+    pub resumo: String,
+    pub resultado: String,
+    pub mensagem: String,
+}
+
+#[derive(Serialize)]
+pub struct CofreDto {
+    pub referencia: String,
+    pub existe: bool,
+    pub aviso: Option<String>,
+}
+
+fn pedido_de(e: PedidoEntrada) -> Result<Pedido, String> {
+    match TipoEscrita::de_str(&e.tipo).ok_or_else(|| format!("tipo de escrita desconhecido: {}", e.tipo))? {
+        TipoEscrita::Reset => Ok(Pedido::reset(&e.olt, e.slot, e.porta, &e.onu, &e.sn, &e.nome)),
+        TipoEscrita::Descricao => Ok(Pedido::descricao(
+            &e.olt, e.slot, e.porta, &e.onu, &e.sn, &e.nome, &e.atual, &e.novo,
+        )),
+        TipoEscrita::Autorizar => Ok(Pedido::autorizar(
+            &e.olt,
+            e.slot,
+            e.porta,
+            &e.sn,
+            e.modo.as_deref().unwrap_or("sn"),
+            e.perfil.as_deref(),
+        )),
+        TipoEscrita::Desautorizar => {
+            Ok(Pedido::desautorizar(&e.olt, e.slot, e.porta, &e.onu, &e.sn, &e.nome))
+        }
+    }
+}
+
+/// Passo 1: mostra o que vai acontecer e emite o token. **Nada é executado.**
+pub fn previa_escrita_de(app: &Aplicacao, entrada: PedidoEntrada) -> Result<PreviaDto, String> {
+    let pedido = pedido_de(entrada)?;
+    // Recusar aqui (ONU inexistente) evita emissão de token para alvo fantasma.
+    let ne = app.ne_por_olt(&pedido.olt)?;
+    if !pedido.onu.is_empty() && !ne.transporte.onus.iter().any(|o| o.id.as_str() == pedido.onu) {
+        return Err(format!("ONU inexistente nesta fonte: {}", pedido.onu));
+    }
+    let token = app.guarda.previa(pedido.clone()).map_err(|e| e.to_string())?;
+    Ok(PreviaDto {
+        token: token.chave.clone(),
+        token_curto: token.curto(),
+        validade_s: token.validade_s,
+        operacao: pedido.tipo.operacao().to_string(),
+        alvo: pedido.onu.clone(),
+        resumo: pedido.resumo(),
+    })
+}
+
+/// Passo 2: executa **exatamente o que foi mostrado** e audita (sucesso e falha).
+pub fn confirmar_escrita_de(app: &Aplicacao, token: &str) -> Result<ConfirmacaoDto, String> {
+    let pedido = app.guarda.confirmar(token).map_err(|e| {
+        app.auditoria.registrar(RegistroAuditoria {
+            quando: agora_utc(),
+            operacao: "confirmacao_recusada".into(),
+            alvo: token.chars().take(8).collect(),
+            resumo: "token inválido, expirado ou já usado".into(),
+            resultado: "falha".into(),
+            mensagem: e.to_string(),
+        });
+        e.to_string()
+    })?;
+
+    let ne = match app.ne_por_olt(&pedido.olt) {
+        Ok(ne) => ne,
+        Err(e) => {
+            app.auditoria.registrar(RegistroAuditoria {
+                quando: agora_utc(),
+                operacao: pedido.tipo.operacao().into(),
+                alvo: pedido.onu.clone(),
+                resumo: pedido.resumo(),
+                resultado: "falha".into(),
+                mensagem: e.clone(),
+            });
+            return Err(e);
+        }
+    };
+
+    let resultado = bloquear(ne.transporte.exec(pedido.comando()));
+
+    match resultado {
+        Ok(CanonicalResult::Ack(ack)) => {
+            let aviso = app.auditoria.registrar(RegistroAuditoria {
+                quando: agora_utc(),
+                operacao: pedido.tipo.operacao().into(),
+                alvo: if pedido.onu.is_empty() { pedido.sn.clone() } else { pedido.onu.clone() },
+                resumo: pedido.resumo(),
+                resultado: "ok".into(),
+                mensagem: ack.mensagem.clone(),
+            });
+            Ok(ConfirmacaoDto {
+                ok: ack.ok,
+                mensagem: ack.mensagem,
+                id_operacao: ack.id_operacao,
+                operacao: pedido.tipo.operacao().to_string(),
+                aviso_auditoria: aviso,
+            })
+        }
+        Ok(outro) => {
+            let msg = format!("resposta inesperada do NE: {}", outro.tipo());
+            app.auditoria.registrar(RegistroAuditoria {
+                quando: agora_utc(),
+                operacao: pedido.tipo.operacao().into(),
+                alvo: pedido.onu.clone(),
+                resumo: pedido.resumo(),
+                resultado: "falha".into(),
+                mensagem: msg.clone(),
+            });
+            Err(msg)
+        }
+        Err(e) => {
+            app.auditoria.registrar(RegistroAuditoria {
+                quando: agora_utc(),
+                operacao: pedido.tipo.operacao().into(),
+                alvo: pedido.onu.clone(),
+                resumo: pedido.resumo(),
+                resultado: "falha".into(),
+                mensagem: e.to_string(),
+            });
+            Err(e.to_string())
+        }
+    }
+}
+
+pub fn auditoria_recente_de(app: &Aplicacao, n: usize) -> Vec<AuditoriaDto> {
+    app.auditoria
+        .ultimos(n.clamp(1, 200))
+        .into_iter()
+        .map(|r| AuditoriaDto {
+            quando: r.quando,
+            operacao: r.operacao,
+            alvo: r.alvo,
+            resumo: r.resumo,
+            resultado: r.resultado,
+            mensagem: r.mensagem,
+        })
+        .collect()
+}
+
+/// Estado do cofre por fonte: existe credencial? **Não** cria nada ao abrir o app.
+pub fn cofre_estado_de(app: &Aplicacao) -> Vec<CofreDto> {
+    app.nes
+        .iter()
+        .map(|ne| {
+            let referencia = ne.transporte.fontes[0].credencial_ref.clone();
+            let existe = app.cofre.existe(&referencia);
+            let aviso = match app.cofre.ler(&referencia) {
+                Err(gpon_cofre::ErroCofre::FalhaDoSistema { motivo, .. }) => Some(motivo),
+                _ => None,
+            };
+            CofreDto { referencia, existe, aviso }
+        })
+        .collect()
+}
+
+/// Gravação explícita (a UI chama só por ação do operador). Nunca em arquivo, nunca em log.
+pub fn cofre_gravar_de(app: &Aplicacao, referencia: &str, segredo: &str) -> Result<(), String> {
+    app.cofre
+        .guardar(referencia, &Segredo::novo(segredo))
+        .map_err(|e| e.to_string())
+}
+
 // ---------- comandos Tauri (só tradução; nenhuma regra mora aqui) ----------
 
 #[tauri::command]
@@ -487,4 +721,39 @@ pub fn listar_alarmes(
     filtro: Option<String>,
 ) -> Result<Vec<AlarmeDto>, String> {
     alarmes_de(&*app, &fonte, filtro)
+}
+
+#[tauri::command]
+pub fn previa_escrita(
+    app: tauri::State<'_, Aplicacao>,
+    pedido: PedidoEntrada,
+) -> Result<PreviaDto, String> {
+    previa_escrita_de(&*app, pedido)
+}
+
+#[tauri::command]
+pub fn confirmar_escrita(
+    app: tauri::State<'_, Aplicacao>,
+    token: String,
+) -> Result<ConfirmacaoDto, String> {
+    confirmar_escrita_de(&*app, &token)
+}
+
+#[tauri::command]
+pub fn auditoria_recente(app: tauri::State<'_, Aplicacao>, n: Option<usize>) -> Vec<AuditoriaDto> {
+    auditoria_recente_de(&*app, n.unwrap_or(50))
+}
+
+#[tauri::command]
+pub fn cofre_estado(app: tauri::State<'_, Aplicacao>) -> Vec<CofreDto> {
+    cofre_estado_de(&*app)
+}
+
+#[tauri::command]
+pub fn cofre_gravar(
+    app: tauri::State<'_, Aplicacao>,
+    referencia: String,
+    segredo: String,
+) -> Result<(), String> {
+    cofre_gravar_de(&*app, &referencia, &segredo)
 }
