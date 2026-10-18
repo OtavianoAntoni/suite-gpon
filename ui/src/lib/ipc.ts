@@ -1,8 +1,9 @@
 /**
  * Ponte única UI ↔ núcleo Rust (`invoke`).
  *
- * Regra: a UI **não** inventa dado. Todo dado canônico vem do núcleo (`gpon-domain`), e fora do
- * Tauri as chamadas devolvem `null` — a tela mostra "fora do Tauri" em vez de mentir um resultado.
+ * Regra: a UI **não** inventa dado. Todo dado canônico vem do núcleo (`gpon-domain` /
+ * `gpon-transport`). Fora do Tauri, os comandos de inventário caem em **modo demo** — um conjunto
+ * mínimo embutido, sempre anunciado na tela com faixa própria; nada de demo silencioso.
  */
 import { invoke } from '@tauri-apps/api/core';
 
@@ -53,4 +54,158 @@ export const escopoFase1 = () => chamar<EscopoFase1>('escopo_fase1');
 /** Marca na tela se um módulo pode servir a operação (SPEC §3.1: nunca mostrar botão morto). */
 export function serve(g: GlifoEvidencia): boolean {
 	return g !== '—';
+}
+
+// ---------------------------------------------------------------------------------------------
+// Inventário (Fase 1): tudo abaixo passa por `CanonicalCmd` no Rust.
+// ---------------------------------------------------------------------------------------------
+
+export type Fonte = {
+	id: string;
+	rotulo: string;
+	perfil: string;
+	modelo: string;
+	host: string;
+	protocolo: string;
+	modulo: string;
+};
+
+export type Olt = {
+	id: string;
+	modelo: string;
+	vendor: string;
+	ip: string;
+	sw_version: string;
+	slots: number;
+	uptime_dias: number;
+	temperatura_c: number | null;
+};
+
+export type Pon = {
+	olt: string;
+	slot: number;
+	porta: number;
+	rotulo: string;
+	tecnologia: string;
+	admin_up: boolean;
+	split_ratio: number;
+	onus: number;
+};
+
+export type Onu = {
+	id: string;
+	olt: string;
+	slot: number;
+	porta: number;
+	sn: string;
+	nome: string;
+	descricao: string;
+	estado: string;
+	modelo_hw: string;
+	modelo_sw: string;
+	vendor: string;
+	distancia_m: number | null;
+	ultimo_registro: string | null;
+};
+
+export type PaginaOnus = {
+	total: number;
+	itens: Onu[];
+	aviso: string | null;
+	modulo: string;
+};
+
+export type Busca = {
+	criterio: string;
+	valor: string;
+	itens: Onu[];
+	aviso: string | null;
+	modulo: string;
+};
+
+export type Queda = { sn: string; nome: string; quando: string };
+
+export type Cluster = {
+	inicio: string;
+	fim: string;
+	tamanho: number;
+	duracao_min: number;
+	quedas: Queda[];
+};
+
+export type Massiva = {
+	janela_min: number;
+	com_hora: number;
+	sem_hora: number;
+	maior_cluster: number;
+	clusters: Cluster[];
+	modulo: string;
+};
+
+export type Alarme = {
+	id: string;
+	severidade: string;
+	ne: string;
+	objeto: string;
+	tipo: string;
+	primeira: string;
+	ultima: string;
+	ack: boolean;
+};
+
+export type Ponte = {
+	fontes(): Promise<Fonte[]>;
+	olts(fonte: string): Promise<Olt[]>;
+	pons(fonte: string, olt: string): Promise<Pon[]>;
+	onus(fonte: string, olt: string, pon?: { slot: number; porta: number }, ordem?: string): Promise<PaginaOnus>;
+	buscar(fonte: string, criterio: string, valor: string): Promise<Busca>;
+	massiva(fonte: string, olt: string, pon: { slot: number; porta: number }, janelaMin: number): Promise<Massiva>;
+	alarmes(fonte: string, filtro?: string): Promise<Alarme[]>;
+};
+
+async function real<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
+	return invoke<T>(cmd, args);
+}
+
+export const ponte: Ponte = {
+	fontes: () => real<Fonte[]>('fontes', {}),
+	olts: (fonte) => real<Olt[]>('listar_olts', { fonte }),
+	pons: (fonte, olt) => real<Pon[]>('listar_pons', { fonte, olt }),
+	onus: (fonte, olt, pon, ordem = 'sn') =>
+		real<PaginaOnus>('listar_onus', {
+			fonte,
+			olt,
+			slot: pon?.slot ?? null,
+			porta: pon?.porta ?? null,
+			filtro: null,
+			ordem
+		}),
+	buscar: (fonte, criterio, valor) => real<Busca>('buscar_onu', { fonte, criterio, valor }),
+	massiva: (fonte, olt, pon, janelaMin) =>
+		real<Massiva>('massiva', { fonte, olt, slot: pon.slot, porta: pon.porta, janelaMin }),
+	alarmes: (fonte, filtro = undefined) => real<Alarme[]>('listar_alarmes', { fonte, filtro: filtro ?? null })
+};
+
+/** Ponte usada pela tela: a real dentro do app, a de demonstração no navegador. */
+export async function ponteDaTela(): Promise<{ ponte: Ponte; demo: boolean }> {
+	if (dentroDoTauri) return { ponte, demo: false };
+	const { ponteDemo } = await import('./demo');
+	return { ponte: ponteDemo, demo: true };
+}
+
+/** `HH:MM` a partir do texto que o NE mandou — sem reinterpretar fuso. */
+export function horaCurta(texto: string | null): string {
+	if (!texto) return '—';
+	const m = texto.match(/[T ](\d{2}:\d{2})/);
+	return m ? m[1] : texto;
+}
+
+export function csvDasQuedas(clusters: Cluster[]): string {
+	const linhas = ['cluster_inicio,cluster_fim,sn,nome,quando'];
+	for (const c of clusters) {
+		for (const q of c.quedas) {
+			linhas.push([c.inicio, c.fim, q.sn, `"${q.nome.replace(/"/g, '""')}"`, q.quando].join(','));
+		}
+	}
+	return linhas.join('\n');
 }

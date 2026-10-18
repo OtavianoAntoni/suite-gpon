@@ -1,358 +1,936 @@
 <script lang="ts">
 	/**
-	 * Casca da suíte (SPEC §8): barra superior (título + módulo A/B/C/D + tema),
-	 * navegação FIXA à esquerda e conteúdo à direita.
+	 * Casca da suíte — estrutura espelha a U2000 (SPEC §8.1), visual flat (§8).
 	 *
-	 * Decisão de produto desta versão: a navegação é fixa e as FOLHAS variam por seção
-	 * (SPEC §3.1, regra 6) — nunca um botão morto. Seção sem dado mostra o motivo, não uma
-	 * tabela vazia fingindo que funcionou.
+	 * Árvore de inventário à esquerda (Fonte > OLT > PON > ONU, carregada sob demanda), painel de
+	 * tarefas no rodapé, "Find by..." na barra superior. Todo dado vem do Rust por `ponte`; fora do
+	 * Tauri a tela entra em modo demonstração e **avisa**.
 	 */
 	import { onMount } from 'svelte';
-	import { Select } from 'bits-ui';
-	import {
-		dentroDoTauri,
-		escopoFase1,
-		listarModulos,
-		listarOperacoes,
-		type EscopoFase1,
-		type GlifoEvidencia,
-		type Modulo,
-		type ModuloInfo,
-		type Operacao
-	} from '#lib/ipc';
 	import { alternarTema, tema } from '#lib/theme.svelte';
+	import {
+		csvDasQuedas,
+		horaCurta,
+		listarOperacoes,
+		ponteDaTela,
+		type Alarme,
+		type Busca,
+		type Fonte,
+		type Massiva,
+		type Onu,
+		type Operacao,
+		type Olt,
+		type Pon,
+		type Ponte
+	} from '#lib/ipc';
 
-	type SecaoId =
-		| 'fontes' | 'olts' | 'pon' | 'onus' | 'perfis'
-		| 'alarmes' | 'tarefas' | 'auditoria' | 'matriz' | 'f1';
+	let ponte: Ponte | null = null;
+	let demo = $state(false);
+	let erro = $state<string | null>(null);
 
-	interface Secao {
-		id: SecaoId;
-		rotulo: string;
-		atalho?: string;
-		resume: string;
-		ops: string[];
-	}
+	let fontes = $state<Fonte[]>([]);
+	let oltas = $state<Record<string, Olt[]>>({});
+	let pons = $state<Record<string, Pon[]>>({});
+	let onus = $state<Record<string, Onu[]>>({});
+	let aberto = $state<Record<string, boolean>>({});
 
-	const SECOES: Secao[] = [
-		{ id: 'fontes', rotulo: 'Fontes', atalho: 'Ctrl+K', resume: 'fontes de gestão cadastradas — a credencial fica no cofre do SO, nunca em arquivo', ops: ['list_sources', 'test_connectivity', 'discover_ne', 'set_source_credentials'] },
-		{ id: 'olts', rotulo: 'OLTs', resume: 'OLT/NE por fonte, com modelo, versão de software e uptime', ops: ['list_olts', 'get_olt_info'] },
-		{ id: 'pon', rotulo: 'Portas PON', resume: 'portas GPON/EPON/XGS por OLT, estado e nº de ONUs', ops: ['list_pon_ports', 'get_performance'] },
-		{ id: 'onus', rotulo: 'ONUs', resume: 'ONUs por porta; a busca por serial é o caminho canônico Ctrl+Shift+S', ops: ['list_onus', 'find_onu_by_sn', 'get_onu', 'get_onu_auth_mode', 'authorize_onu', 'deauthorize_onu', 'reset_onu', 'set_onu_description'] },
-		{ id: 'perfis', rotulo: 'Perfis', resume: 'perfis/templates por tipo (line, DBA, bandwidth, ONU-type)', ops: ['list_profiles', 'get_profile', 'create_profile/delete_profile/apply_profile'] },
-		{ id: 'alarmes', rotulo: 'Alarmes', resume: 'alarmes ativos e histórico por NE', ops: ['list_alarms', 'ack_alarm/clear_alarm'] },
-		{ id: 'tarefas', rotulo: 'Tarefas', resume: 'tarefas em execução, progresso e histórico', ops: ['list_tasks/get_task', 'cancel_task'] },
-		{ id: 'auditoria', rotulo: 'Auditoria', resume: 'toda execução grava módulo, nível de evidência, autor e resultado', ops: [] },
-		{ id: 'matriz', rotulo: 'Matriz de capacidades', atalho: 'Ctrl+Shift+C', resume: 'as 33 operações canônicas × os 4 módulos, com o nível de evidência', ops: [] },
-		{ id: 'f1', rotulo: 'F1 — o que mudou para você', atalho: 'F1', resume: 'painel de onboarding; nasce em branco por decisão: nada herdado de exemplo', ops: [] }
-	];
+	let fonteSel = $state<Fonte | null>(null);
+	let oltSel = $state<Olt | null>(null);
+	let ponSel = $state<Pon | null>(null);
+	let onuSel = $state<Onu | null>(null);
 
-	const LEGENDA: [GlifoEvidencia, string][] = [
-		['E', 'evidência direta em disco (comando/artefato nomeado)'],
-		['P', 'provável (caminho plausível, sem comando nomeado)'],
-		['?', 'indício insuficiente'],
-		['—', 'sem evidência no cliente']
-	];
-
-	let modulos = $state<ModuloInfo[]>([]);
-	let operacoes = $state<Operacao[]>([]);
-	let escopo = $state<EscopoFase1 | null>(null);
-	let moduloAtivo = $state<Modulo>('C');
-	let secao = $state<SecaoId>('matriz');
+	let area = $state<'inventario' | 'alarmes' | 'matriz' | 'f1'>('inventario');
 	let carregando = $state(true);
 
-	const secaoAtual = $derived(SECOES.find((s) => s.id === secao) ?? SECOES[8]);
+	let janela = $state(5);
+	let massiva = $state<Massiva | null>(null);
+	let analisando = $state(false);
 
-	function opsDaSecao(): Operacao[] {
-		return secaoAtual.ops
-			.map((id) => operacoes.find((o) => o.id === id))
-			.filter((o): o is Operacao => o !== undefined);
+	let criterio = $state<'sn' | 'alias' | 'vlan'>('sn');
+	let termo = $state('');
+	let busca = $state<Busca | null>(null);
+	let erroBusca = $state<string | null>(null);
+
+	let alarmes = $state<Alarme[]>([]);
+	let operacoes = $state<Operacao[]>([]);
+
+	type Tarefa = { hora: string; texto: string; tipo: 'ok' | 'erro' };
+	let tarefas = $state<Tarefa[]>([]);
+	let painelAberto = $state(true);
+
+	function registrar(texto: string, tipo: 'ok' | 'erro' = 'ok') {
+		const hora = new Date().toLocaleTimeString('pt-BR', {
+			hour: '2-digit',
+			minute: '2-digit',
+			second: '2-digit'
+		});
+		tarefas = [{ hora, texto, tipo }, ...tarefas].slice(0, 20);
 	}
 
-	function rotuloAtual(): string {
-		const m = modulos.find((x) => x.tag === moduloAtivo);
-		return m ? `${m.tag} · ${m.rotulo}` : moduloAtivo;
-	}
+	onMount(async () => {
+		const { ponte: p, demo: ehDemo } = await ponteDaTela();
+		ponte = p;
+		demo = ehDemo;
+		try {
+			fontes = await p.fontes();
+			if (fontes.length) {
+				await abrirFonte(fontes[0]);
+				// Abre o primeiro ramo até a PON: a tela inicial já mostra o que importa (quedas).
+				const olts = oltas[fontes[0].id] ?? [];
+				if (olts.length) {
+					await abrirOlt(olts[0]);
+					const lista = pons[olts[0].id] ?? [];
+					if (lista.length) await abrirPon(lista[0]);
+				}
+			}
+			operacoes = (await listarOperacoes()) ?? [];
+		} catch (e) {
+			erro = String(e);
+		} finally {
+			carregando = false;
+		}
+	});
 
-	function naFase1(id: string): boolean {
-		if (!escopo) return false;
-		return escopo.leitura.includes(id) || escopo.escrita.includes(id);
-	}
-
-	function atalhos(e: KeyboardEvent) {
-		if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'c') {
-			e.preventDefault();
-			secao = 'matriz';
-		} else if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'k') {
-			e.preventDefault();
-			secao = 'fontes';
-		} else if (e.altKey && ['1', '2', '3', '4'].includes(e.key)) {
-			e.preventDefault();
-			moduloAtivo = (['A', 'B', 'C', 'D'] as Modulo[])[Number(e.key) - 1];
-		} else if (e.key === 'F1') {
-			e.preventDefault();
-			secao = 'f1';
+	async function abrirFonte(f: Fonte) {
+		fonteSel = f;
+		aberto[f.id] = true;
+		if (oltas[f.id]) return;
+		try {
+			oltas[f.id] = await ponte!.olts(f.id);
+			registrar(`OLTs de ${f.rotulo}: ${oltas[f.id].length}`);
+		} catch (e) {
+			registrar(`falha ao listar OLTs: ${e}`, 'erro');
 		}
 	}
 
-	onMount(() => {
-		window.addEventListener('keydown', atalhos);
-		void (async () => {
-			modulos = (await listarModulos()) ?? [];
-			operacoes = (await listarOperacoes()) ?? [];
-			escopo = await escopoFase1();
-			carregando = false;
-		})();
-		return () => window.removeEventListener('keydown', atalhos);
-	});
+	async function abrirOlt(o: Olt) {
+		oltSel = o;
+		aberto[o.id] = true;
+		ponSel = null;
+		massiva = null;
+		if (pons[o.id]) return;
+		try {
+			pons[o.id] = await ponte!.pons(fonteSel!.id, o.id);
+			registrar(`${o.id}: ${pons[o.id].length} PON(s)`);
+		} catch (e) {
+			registrar(`falha ao listar PONs: ${e}`, 'erro');
+		}
+	}
+
+	async function abrirPon(p: Pon) {
+		ponSel = p;
+		onuSel = null;
+		area = 'inventario';
+		const chave = `${p.olt}-${p.slot}/${p.porta}`;
+		if (!onus[chave]) {
+			try {
+				const pagina = await ponte!.onus(fonteSel!.id, p.olt, { slot: p.slot, porta: p.porta });
+				onus[chave] = pagina.itens;
+			} catch (e) {
+				registrar(`falha ao listar ONUs: ${e}`, 'erro');
+			}
+		}
+		await analisar();
+	}
+
+	async function analisar() {
+		if (!ponte || !fonteSel || !ponSel) return;
+		analisando = true;
+		try {
+			massiva = await ponte.massiva(fonteSel.id, ponSel.olt, { slot: ponSel.slot, porta: ponSel.porta }, janela);
+			registrar(
+				`PON ${ponSel.rotulo}: ${massiva.com_hora} queda(s) em ${massiva.clusters.length} janela(s) de ${janela} min`,
+				massiva.maior_cluster > 1 ? 'ok' : 'ok'
+			);
+		} catch (e) {
+			registrar(`análise falhou: ${e}`, 'erro');
+			massiva = null;
+		} finally {
+			analisando = false;
+		}
+	}
+
+	function verOnu(o: Onu) {
+		onuSel = o;
+		area = 'inventario';
+	}
+
+	async function procurar() {
+		if (!ponte || !fonteSel) return;
+		erroBusca = null;
+		busca = null;
+		try {
+			busca = await ponte.buscar(fonteSel.id, criterio, termo);
+			registrar(`busca por ${criterio}: ${busca.itens.length} resultado(s)`);
+		} catch (e) {
+			erroBusca = String(e).replace(/^Error:\s*/, '');
+			registrar(`busca por ${criterio}: ${erroBusca}`, 'erro');
+		}
+	}
+
+	async function carregarAlarmes() {
+		area = 'alarmes';
+		if (!ponte || !fonteSel || alarmes.length) return;
+		try {
+			alarmes = await ponte.alarmes(fonteSel.id);
+			registrar(`alarmes ativos: ${alarmes.length}`);
+		} catch (e) {
+			registrar(`falha ao listar alarmes: ${e}`, 'erro');
+		}
+	}
+
+	function exportarCsv() {
+		if (!massiva) return;
+		const total = massiva.clusters.reduce((n, c) => n + c.tamanho, 0);
+		const blob = new Blob([csvDasQuedas(massiva.clusters)], { type: 'text/csv;charset=utf-8' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = `massiva-pon-${ponSel?.slot}-${ponSel?.porta}.csv`;
+		a.click();
+		URL.revokeObjectURL(url);
+		registrar(`CSV exportado: ${total} ONU(s)`);
+	}
+
+	let maiorIndice = $derived(
+		massiva ? massiva.clusters.reduce((m, c, i) => (c.tamanho > massiva!.clusters[m].tamanho ? i : m), 0) : -1
+	);
+
+	function atalhos(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			busca = null;
+			erroBusca = null;
+			termo = '';
+		}
+	}
 </script>
 
+<svelte:window onkeydown={atalhos} />
+
 <div class="app">
+	{#if demo}
+		<div class="faixa-demo" role="status">
+			modo demonstração — a UI está fora do app (navegador). Os números abaixo são de exemplo.
+		</div>
+	{/if}
+
 	<header class="topo">
 		<span class="titulo">Suíte GPON/FTTH</span>
 
-		<div class="modulo">
-			{#if modulos.length > 0}
-				<Select.Root
-					type="single"
-					value={moduloAtivo}
-					onValueChange={(v) => (moduloAtivo = v as Modulo)}
-				>
-					<Select.Trigger class="sel-trigger" aria-label="Módulo de origem">
-						{rotuloAtual()}
-						<span class="seta">▾</span>
-					</Select.Trigger>
-					<Select.Content class="sel-conteudo">
-						{#each modulos as m (m.tag)}
-							<Select.Item value={m.tag} label={m.rotulo} class="sel-item">
-								{m.tag} · {m.rotulo}
-							</Select.Item>
-						{/each}
-					</Select.Content>
-				</Select.Root>
-			{:else}
-				<span class="aviso">nenhum módulo carregado</span>
-			{/if}
+		<form class="find" onsubmit={(e) => (e.preventDefault(), procurar())}>
+			<label class="oculto" for="find-criterio">Critério de busca</label>
+			<select id="find-criterio" bind:value={criterio}>
+				<option value="sn">SN</option>
+				<option value="alias">ALIAS</option>
+				<option value="vlan">VLAN</option>
+			</select>
+			<label class="oculto" for="find-termo">Valor</label>
+			<input id="find-termo" bind:value={termo} placeholder="Find by…" autocomplete="off" />
+			<button type="submit" disabled={!termo.trim()}>buscar</button>
+		</form>
+
+		<div class="modulos" aria-label="Origem dos comandos">
+			{#each ['A', 'B', 'C', 'D'] as m}
+				<span class="modulo" class:ativo={m === 'C'} title={m === 'C' ? 'mock-ne-huawei (Fase 1)' : 'sem fonte configurada'}>
+					{m}
+				</span>
+			{/each}
 		</div>
 
 		<button class="tema" onclick={alternarTema} aria-label="Alternar tema claro/escuro">
-			tema: {tema()}
+			{tema() === 'claro' ? 'escuro' : 'claro'}
 		</button>
 	</header>
 
+	{#if erro}
+		<div class="erro" role="alert">núcleo indisponível: {erro}</div>
+	{/if}
+
 	<div class="corpo">
-		<nav class="nav" aria-label="Navegação principal">
-			<span class="nav-rotulo">navegação (fixa)</span>
-			{#each SECOES as s (s.id)}
-				<button
-					class="nav-item"
-					class:selecionado={secao === s.id}
-					aria-current={secao === s.id ? 'page' : undefined}
-					onclick={() => (secao = s.id)}
-				>
-					{s.rotulo}{#if s.atalho}<span class="atalho">{s.atalho}</span>{/if}
-				</button>
-			{/each}
-		</nav>
+		<aside class="lateral">
+			<nav class="areas" aria-label="Áreas">
+				<button class:ativo={area === 'inventario'} onclick={() => (area = 'inventario')}>Inventário</button>
+				<button class:ativo={area === 'alarmes'} onclick={carregarAlarmes}>Alarmes</button>
+				<button class:ativo={area === 'matriz'} onclick={() => (area = 'matriz')}>Matriz</button>
+				<button class:ativo={area === 'f1'} onclick={() => (area = 'f1')}>F1</button>
+			</nav>
+
+			<div class="arvore-caixa">
+				<span class="nav-rotulo">inventário</span>
+				{#if carregando}
+					<p class="vazio">carregando…</p>
+				{:else if !fontes.length}
+					<p class="vazio">nenhuma fonte configurada</p>
+				{/if}
+
+				<ul class="arvore">
+					{#each fontes as f (f.id)}
+						<li>
+							<button class="no n1" class:sel={fonteSel?.id === f.id} onclick={() => abrirFonte(f)} aria-expanded={!!aberto[f.id]}>
+								<span class="seta">{aberto[f.id] ? '▾' : '▸'}</span>
+								<span class="rotulo">{f.rotulo}</span>
+								<span class="meta">{f.perfil}</span>
+							</button>
+							{#if aberto[f.id]}
+								<ul>
+									{#each oltas[f.id] ?? [] as o (o.id)}
+										<li>
+											<button class="no n2" class:sel={oltSel?.id === o.id} onclick={() => abrirOlt(o)} aria-expanded={!!aberto[o.id]}>
+												<span class="seta">{aberto[o.id] ? '▾' : '▸'}</span>
+												<span class="rotulo">{o.modelo}</span>
+												<span class="meta">{o.ip}</span>
+											</button>
+											{#if aberto[o.id]}
+												<ul>
+													{#each pons[o.id] ?? [] as p (p.rotulo)}
+														<li>
+															<button class="no n3" class:sel={ponSel?.rotulo === p.rotulo && ponSel?.olt === p.olt} onclick={() => abrirPon(p)}>
+																<span class="seta">·</span>
+																<span class="rotulo">PON {p.rotulo}</span>
+																<span class="meta">{p.onus} ONU</span>
+															</button>
+															{#if ponSel?.rotulo === p.rotulo && ponSel?.olt === p.olt}
+																<ul>
+																	{#each (onus[`${p.olt}-${p.slot}/${p.porta}`] ?? []).slice(0, 8) as u (u.id)}
+																		<li>
+																			<button class="no n4" class:sel={onuSel?.id === u.id} onclick={() => verOnu(u)}>
+																				<span class="seta">·</span>
+																				<span class="rotulo">{u.nome || u.sn}</span>
+																				<span class="meta">{u.estado}</span>
+																			</button>
+																		</li>
+																	{/each}
+																</ul>
+															{/if}
+														</li>
+													{/each}
+												</ul>
+											{/if}
+										</li>
+									{/each}
+								</ul>
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			</div>
+		</aside>
 
 		<main class="conteudo">
-			{#if !dentroDoTauri}
-				<p class="faixa">
-					Fora do Tauri: os dados canônicos só existem no núcleo Rust. Rode
-					<code>./ui/node_modules/.bin/tauri dev</code> para ver as 33 operações.
-				</p>
+			{#if busca || erroBusca}
+				<section class="busca-caixa">
+					<header class="linha">
+						<strong>busca por {criterio}</strong>
+						<span class="badge">via C</span>
+						<button class="link" onclick={() => ((busca = null), (erroBusca = null))}>fechar</button>
+					</header>
+					{#if erroBusca}
+						<p class="erro-linha">{erroBusca}</p>
+					{:else if busca}
+						{#if busca.aviso}<p class="aviso-linha">{busca.aviso}</p>{/if}
+						<table class="tabela">
+							<thead>
+								<tr><th>SN</th><th>nome</th><th>ONU</th><th>estado</th><th>último registro</th></tr>
+							</thead>
+							<tbody>
+								{#each busca.itens as u (u.id)}
+									<tr class="clicavel" onclick={() => verOnu(u)}>
+										<td class="mono">{u.sn}</td>
+										<td>{u.nome}</td>
+										<td>{u.slot}/{u.porta}</td>
+										<td>{u.estado}</td>
+										<td>{horaCurta(u.ultimo_registro)}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{/if}
+				</section>
 			{/if}
 
-			<div class="barra-resultado">
-				<span class="badge">via {rotuloAtual()}</span>
-				<span class="nucleo">
-					{operacoes.length} operações canônicas{escopo
-						? ` · Fase 1 (módulo ${escopo.modulo}): ${escopo.leitura.length} leituras + ${escopo.escrita.length} escritas`
-						: ''}
-				</span>
-			</div>
+			{#if area === 'inventario'}
+				{#if ponSel}
+					<header class="cabecalho">
+						<h1>PON {ponSel.rotulo} · {oltSel?.modelo ?? ponSel.olt}</h1>
+						<div class="controles">
+							<label>
+								janela
+								<select bind:value={janela} onchange={analisar}>
+									{#each [1, 3, 5, 10, 15] as j}<option value={j}>{j} min</option>{/each}
+								</select>
+							</label>
+							<button onclick={analisar} disabled={analisando}>{analisando ? 'analisando…' : 'reanalisar'}</button>
+							<button onclick={exportarCsv} disabled={!massiva?.clusters.length}>exportar CSV</button>
+						</div>
+					</header>
 
-			<h1>{secaoAtual.rotulo}</h1>
-			<p class="sub">{secaoAtual.resume}</p>
+					{#if massiva}
+						<div class="resumo">
+							<div><span class="num">{massiva.com_hora}</span><span class="rot">ONUs com hora de queda</span></div>
+							<div><span class="num">{massiva.sem_hora}</span><span class="rot">sem hora informada</span></div>
+							<div><span class="num">{massiva.clusters.length}</span><span class="rot">janelas de {massiva.janela_min} min</span></div>
+							<div class:alerta={massiva.maior_cluster > 2}>
+								<span class="num">{massiva.maior_cluster}</span><span class="rot">maior agrupamento</span>
+							</div>
+						</div>
 
-			{#if secao === 'matriz'}
-				<p class="sub">
-					Cada linha traz o nível de <strong>evidência</strong> do módulo (SPEC §1.3). A coluna do
-					módulo ativo está destacada; <span class="marca">⚠</span> marca operação destrutiva
-					(exige confirmação dupla).
-				</p>
-				{#if carregando}
-					<p>lendo o núcleo…</p>
-				{:else if operacoes.length === 0}
-					<p class="vazio">sem dados do núcleo (fora do Tauri).</p>
-				{:else}
-					<table>
-						<thead>
-							<tr>
-								<th>#</th>
-								<th>Operação</th>
-								<th>Pré-condições</th>
-								<th class:ativa={moduloAtivo === 'A'}>A</th>
-								<th class:ativa={moduloAtivo === 'B'}>B</th>
-								<th class:ativa={moduloAtivo === 'C'}>C</th>
-								<th class:ativa={moduloAtivo === 'D'}>D</th>
-								<th>Fase 1</th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each operacoes as op (op.n)}
-								<tr class:mudo={op.evidencias[moduloAtivo] === '—'}>
-									<td>{op.n}</td>
-									<td><code>{op.assinatura}</code>{#if op.destrutiva}<span class="marca"> ⚠</span>{/if}</td>
-									<td>{op.precondicoes}</td>
-									{#each ['A', 'B', 'C', 'D'] as const as m (m)}
-										<td class:ativa={moduloAtivo === m}>{op.evidencias[m]}</td>
-									{/each}
-									<td>{naFase1(op.id) ? 'sim' : ''}</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
+						{#if !massiva.clusters.length}
+							<p class="vazio">
+								este NE não informou hora de queda para nenhuma ONU desta PON — não há como agrupar.
+							</p>
+						{/if}
 
-					<h2>Legenda do nível de evidência</h2>
-					<ul class="legenda">
-						{#each LEGENDA as [g, texto] (g)}
-							<li><code>{g}</code> — {texto}</li>
+						{#each massiva.clusters as c, i (c.inicio + c.fim)}
+							<section class="cluster" class:destaque={i === maiorIndice && c.tamanho > 2}>
+								<header class="linha">
+									<strong>{c.tamanho} ONU{c.tamanho > 1 ? 's' : ''}</strong>
+									<span class="mono">{horaCurta(c.inicio)} → {horaCurta(c.fim)}</span>
+									<span class="meta">{c.duracao_min} min de duração</span>
+									{#if i === maiorIndice && c.tamanho > 2}
+										<span class="selo">possível massiva</span>
+									{/if}
+								</header>
+								<table class="tabela">
+									<thead><tr><th>SN</th><th>cliente</th><th>quando</th></tr></thead>
+									<tbody>
+										{#each c.quedas as q (q.sn)}
+											<tr><td class="mono">{q.sn}</td><td>{q.nome}</td><td>{horaCurta(q.quando)}</td></tr>
+										{/each}
+									</tbody>
+								</table>
+							</section>
 						{/each}
-					</ul>
-				{/if}
-
-			{:else if secao === 'f1'}
-				<p class="faixa">
-					Os caminhos legados são preenchidos por observação real. Nada aqui é herdado de exemplo.
-				</p>
-				<h2>1. O caminho antigo → o caminho novo</h2>
-				<p class="vazio">Vazio por padrão — preenchido só por observação na Fase 1 (SPEC §4.1/P1).</p>
-				<h2>2. O que muda no seu dia</h2>
-				<p class="vazio">a confirmar (depende do bloco 1).</p>
-				<h2>3. O que NÃO mudou</h2>
-				<p>Um caminho canônico por operação; nada de decorar três atalhos por fornecedor.</p>
-				<h2>4. O que ainda não está pronto</h2>
-				<p>Fases 0–1 rodam 100% contra mock, sem equipamento real. Nenhum dado de campo aqui é real.</p>
-				<h2>5. Como confirmar</h2>
-				<p>última atualização: — · 0 de 0 linhas confirmadas</p>
-
-			{:else}
-				{#if secaoAtual.ops.length === 0}
-					<p class="vazio">
-						Seção sem tabela por decisão de escopo: {secaoAtual.id === 'auditoria'
-							? 'o registro de auditoria é gravado pelo núcleo a cada execução, e ainda não há execução para mostrar.'
-							: 'esta seção será preenchida quando a fonte estiver cadastrada.'}
-					</p>
+					{:else if !analisando}
+						<p class="vazio">sem análise ainda.</p>
+					{/if}
+				{:else if onuSel}
+					<section class="detalhe">
+						<header class="cabecalho">
+							<h1>{onuSel.nome || onuSel.sn}</h1>
+							<span class="badge">via C · E</span>
+						</header>
+						<dl class="campos">
+							<div><dt>SN</dt><dd class="mono">{onuSel.sn}</dd></div>
+							<div><dt>PON</dt><dd>{onuSel.slot}/{onuSel.porta}</dd></div>
+							<div><dt>estado</dt><dd>{onuSel.estado}</dd></div>
+							<div><dt>modelo</dt><dd>{onuSel.modelo_hw} · {onuSel.modelo_sw}</dd></div>
+							<div><dt>distância</dt><dd>{onuSel.distancia_m ?? 'não informada'}</dd></div>
+							<div><dt>último registro</dt><dd>{onuSel.ultimo_registro ?? 'não informado'}</dd></div>
+						</dl>
+						<p class="nota">
+							nível óptico não está na Fase 1: é o primeiro item da Fase 2 (em C a evidência é <code>P</code>).
+						</p>
+					</section>
 				{:else}
-					<div class="barra-resultado">
-						<span class="badge">nível em {moduloAtivo}</span>
-						<span class="nucleo">operações que servem esta tela</span>
-					</div>
-					<table>
-						<thead>
-							<tr><th>Operação</th><th>Pré-condições</th><th>{moduloAtivo}</th><th>Fase 1</th></tr>
-						</thead>
+					<p class="vazio">selecione uma PON na árvore para ver as quedas agrupadas.</p>
+				{/if}
+			{:else if area === 'alarmes'}
+				<header class="cabecalho"><h1>Alarmes</h1><span class="badge">via C</span></header>
+				{#if !alarmes.length}
+					<p class="vazio">nenhum alarme ativo na fonte selecionada.</p>
+				{:else}
+					<table class="tabela">
+						<thead><tr><th>severidade</th><th>NE</th><th>objeto</th><th>tipo</th><th>primeira</th><th>última</th><th>ack</th></tr></thead>
 						<tbody>
-							{#each opsDaSecao() as op (op.n)}
-								<tr class:mudo={op.evidencias[moduloAtivo] === '—'}>
-									<td><code>{op.assinatura}</code>{#if op.destrutiva}<span class="marca"> ⚠</span>{/if}</td>
-									<td>{op.precondicoes}</td>
-									<td>{op.evidencias[moduloAtivo]}</td>
-									<td>{naFase1(op.id) ? 'sim' : ''}</td>
+							{#each alarmes as a (a.id)}
+								<tr>
+									<td class="sev {a.severidade}">{a.severidade}</td>
+									<td>{a.ne}</td><td>{a.objeto}</td><td>{a.tipo}</td>
+									<td>{horaCurta(a.primeira)}</td><td>{horaCurta(a.ultima)}</td>
+									<td>{a.ack ? 'sim' : 'não'}</td>
 								</tr>
 							{/each}
 						</tbody>
 					</table>
-					<p class="vazio">
-						Sem linhas de dado: nenhuma fonte cadastrada. A Fase 0 entrega o cadastro + teste de
-						conexão contra o mock; a listagem real vem na Fase 1.
-					</p>
 				{/if}
+			{:else if area === 'matriz'}
+				<header class="cabecalho"><h1>Matriz de capacidades</h1><span class="meta">{operacoes.length} operações canônicas</span></header>
+				<p class="nota">
+					E = comando nomeado em disco · P = caminho plausível · ? = insuficiente · — = nenhuma evidência no cliente
+				</p>
+				<table class="tabela compacta">
+					<thead><tr><th>#</th><th>operação</th><th>A</th><th>B</th><th>C</th><th>D</th></tr></thead>
+					<tbody>
+						{#each operacoes as op (op.id)}
+							<tr>
+								<td class="mono">{op.n}</td>
+								<td><code>{op.id}</code>{#if op.destrutiva}<span class="marca"> ⚠</span>{/if}</td>
+								<td class:celula-ativa={op.evidencias.A !== '—'}>{op.evidencias.A}</td>
+								<td class:celula-ativa={op.evidencias.B !== '—'}>{op.evidencias.B}</td>
+								<td class:celula-ativa={op.evidencias.C !== '—'}>{op.evidencias.C}</td>
+								<td class:celula-ativa={op.evidencias.D !== '—'}>{op.evidencias.D}</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			{:else}
+				<header class="cabecalho"><h1>F1 — o que esta suíte faz</h1></header>
+				<ul class="f1">
+					<li><strong>Fase 1</strong> conversa só com o <em>mock</em> em memória: nenhuma OLT real é tocada.</li>
+					<li>16 operações canônicas (12 leituras + 4 escritas); o módulo de referência é <code>C</code>.</li>
+					<li>Busca por <strong>SN</strong> e <strong>ALIAS</strong> agora; <strong>VLAN</strong> chega na Fase 2.</li>
+					<li>Ordenar a PON pela hora da queda é o que permite ver massiva sem clicar em cada cliente.</li>
+					<li>Operações destrutivas aparecem com <span class="marca">⚠</span> e pedem confirmação dupla.</li>
+				</ul>
 			{/if}
 		</main>
 	</div>
+
+	<footer class="tarefas" class:fechado={!painelAberto}>
+		<header class="linha">
+			<strong>tarefas</strong>
+			<span class="meta">{tarefas.length} evento(s)</span>
+			<button class="link" onclick={() => (painelAberto = !painelAberto)}>
+				{painelAberto ? 'recolher' : 'expandir'}
+			</button>
+		</header>
+		{#if painelAberto}
+			<ul>
+				{#each tarefas as t, i (i)}
+					<li class:falha={t.tipo === 'erro'}><span class="mono">{t.hora}</span> {t.texto}</li>
+				{/each}
+				{#if !tarefas.length}<li class="vazio">nenhuma operação nesta sessão.</li>{/if}
+			</ul>
+		{/if}
+	</footer>
 </div>
 
 <style>
-	.app { display: flex; flex-direction: column; height: 100vh; }
+	.app {
+		display: grid;
+		grid-template-rows: auto auto 1fr auto;
+		height: 100vh;
+		background: var(--cor-fundo);
+		color: var(--cor-texto);
+		font-size: var(--fonte-tamanho);
+	}
+
+	.oculto {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+	}
+
+	.faixa-demo {
+		background: #fef3c7;
+		color: #7c2d12;
+		padding: 4px 12px;
+		border-bottom: 1px solid var(--cor-borda);
+		font-size: 12px;
+	}
 
 	.topo {
-		display: flex; align-items: center; gap: var(--espaco);
-		height: 40px; padding: 0 var(--espaco);
-		background: var(--cor-superficie); border-bottom: 1px solid var(--cor-borda);
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		height: 44px;
+		padding: 0 12px;
+		background: var(--cor-superficie);
+		border-bottom: 1px solid var(--cor-borda);
 	}
 
-	.titulo { font-weight: 600; margin-right: auto; }
-
-	:global(.sel-trigger) { display: inline-flex; align-items: center; gap: 6px; min-width: 210px; }
-	.seta { margin-left: auto; color: var(--cor-texto-suave); }
-	:global(.sel-conteudo) {
-		background: var(--cor-superficie); border: 1px solid var(--cor-borda);
-		border-radius: 2px; padding: 2px; min-width: 210px;
+	.titulo {
+		font-weight: 600;
+		margin-right: 8px;
 	}
-	:global(.sel-item) { padding: 4px 8px; cursor: default; }
-	:global(.sel-item[data-highlighted]) { background: var(--cor-fundo); }
 
-	.corpo { display: flex; flex: 1; min-height: 0; }
+	.find {
+		display: flex;
+		gap: 4px;
+		flex: 1;
+		max-width: 460px;
+	}
+	.find select,
+	.find input,
+	.find button {
+		height: 28px;
+		border: 1px solid var(--cor-borda);
+		background: var(--cor-fundo);
+		color: var(--cor-texto);
+		border-radius: 2px;
+		padding: 0 6px;
+		font: inherit;
+	}
+	.find input {
+		flex: 1;
+	}
+	.find button {
+		cursor: pointer;
+	}
+	.find button:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
 
-	.nav {
-		width: 264px; flex: 0 0 264px;
-		background: var(--cor-superficie); border-right: 1px solid var(--cor-borda);
-		padding: var(--espaco); display: flex; flex-direction: column; gap: 2px;
+	.modulos {
+		display: flex;
+		gap: 2px;
+		margin-left: auto;
+	}
+	.modulo {
+		width: 24px;
+		height: 24px;
+		display: grid;
+		place-items: center;
+		border: 1px solid var(--cor-borda);
+		border-radius: 2px;
+		color: var(--cor-texto-suave);
+		font-size: 12px;
+	}
+	.modulo.ativo {
+		background: var(--cor-acento);
+		color: #fff;
+		border-color: var(--cor-acento);
+	}
+
+	.tema {
+		height: 24px;
+		border: 1px solid var(--cor-borda);
+		background: var(--cor-fundo);
+		color: var(--cor-texto);
+		border-radius: 2px;
+		cursor: pointer;
+		font: inherit;
+		padding: 0 8px;
+	}
+
+	.erro {
+		background: #fee2e2;
+		color: #7f1d1d;
+		padding: 6px 12px;
+		border-bottom: 1px solid var(--cor-borda);
+	}
+
+	.corpo {
+		display: grid;
+		grid-template-columns: 264px 1fr;
+		min-height: 0;
+	}
+
+	.lateral {
+		border-right: 1px solid var(--cor-borda);
+		background: var(--cor-superficie);
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+	}
+
+	.areas {
+		display: flex;
+		gap: 0;
+		border-bottom: 1px solid var(--cor-borda);
+	}
+	.areas button {
+		flex: 1;
+		height: 30px;
+		border: 0;
+		border-right: 1px solid var(--cor-borda);
+		background: transparent;
+		color: var(--cor-texto-suave);
+		cursor: pointer;
+		font: inherit;
+		font-size: 12px;
+	}
+	.areas button.ativo {
+		color: var(--cor-texto);
+		box-shadow: inset 0 -2px 0 var(--cor-acento);
 	}
 
 	.nav-rotulo {
-		color: var(--cor-texto-suave); font-size: 11px;
-		text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px;
+		display: block;
+		padding: 6px 10px;
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--cor-texto-suave);
 	}
 
-	.nav-item {
-		display: flex; align-items: center; gap: 6px; white-space: nowrap;
-		height: var(--altura-linha); padding: 0 8px;
-		background: transparent; border: 1px solid transparent; border-radius: 2px;
-		text-align: left; cursor: pointer;
+	.arvore-caixa {
+		overflow: auto;
+		min-height: 0;
 	}
 
-	.nav-item:hover { background: var(--cor-fundo); border-color: var(--cor-borda); }
-
-	.nav-item.selecionado {
-		background: var(--cor-fundo); border-color: var(--cor-acento); font-weight: 600;
+	.arvore,
+	.arvore ul {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+	.arvore ul {
+		padding-left: 10px;
+		border-left: 1px solid var(--cor-borda);
+		margin-left: 14px;
 	}
 
-	.atalho { margin-left: auto; color: var(--cor-texto-suave); font-size: 11px; }
-
-	.conteudo { flex: 1; min-width: 0; overflow: auto; padding: var(--espaco) calc(var(--espaco) * 1.5); }
-
-	h1 { font-size: 15px; margin: 12px 0 4px; }
-	h2 { font-size: 13.5px; margin: 18px 0 4px; }
-	.sub { color: var(--cor-texto-suave); margin: 0 0 10px; }
-
-	.barra-resultado { display: flex; align-items: center; gap: var(--espaco); padding: 6px 0; }
-
-	.badge, .nucleo {
-		font-size: 12px; border: 1px solid var(--cor-borda);
-		background: transparent; padding: 2px 6px;
+	.no {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		width: 100%;
+		height: var(--altura-linha);
+		border: 0;
+		background: transparent;
+		color: var(--cor-texto);
+		cursor: pointer;
+		font: inherit;
+		text-align: left;
+		padding: 0 8px;
 	}
-	.nucleo { color: var(--cor-texto-suave); }
-
-	.faixa {
-		border: 1px solid var(--cor-borda); border-left: 3px solid var(--cor-acento);
-		padding: 6px 8px; background: var(--cor-superficie);
+	.no:hover {
+		background: var(--cor-fundo);
+	}
+	.no.sel {
+		background: var(--cor-fundo);
+		box-shadow: inset 2px 0 0 var(--cor-acento);
+	}
+	.no .seta {
+		color: var(--cor-texto-suave);
+		width: 10px;
+	}
+	.no .rotulo {
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.no .meta {
+		color: var(--cor-texto-suave);
+		font-size: 11px;
 	}
 
-	.aviso { color: var(--cor-texto-suave); }
-	.marca { color: var(--cor-acento); }
-	.vazio { color: var(--cor-texto-suave); border-left: 3px solid var(--cor-borda); padding-left: 8px; }
-
-	th.ativa, td.ativa {
-		background: var(--cor-superficie); font-weight: 700;
-		border-bottom: 2px solid var(--cor-acento);
+	.conteudo {
+		overflow: auto;
+		padding: 12px 16px;
+		min-height: 0;
 	}
 
-	tr.mudo td { color: var(--cor-texto-suave); }
+	.cabecalho {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		margin-bottom: 10px;
+	}
+	h1 {
+		font-size: 15px;
+		font-weight: 600;
+		margin: 0;
+	}
+	.controles {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-left: auto;
+	}
+	.controles select,
+	.controles button {
+		height: 26px;
+		border: 1px solid var(--cor-borda);
+		background: var(--cor-superficie);
+		color: var(--cor-texto);
+		border-radius: 2px;
+		font: inherit;
+		padding: 0 6px;
+		cursor: pointer;
+	}
 
-	.legenda { margin: 0; padding-left: 18px; }
+	.resumo {
+		display: flex;
+		gap: 1px;
+		background: var(--cor-borda);
+		border: 1px solid var(--cor-borda);
+		margin-bottom: 12px;
+	}
+	.resumo > div {
+		flex: 1;
+		background: var(--cor-superficie);
+		padding: 8px 10px;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.resumo .num {
+		font-size: 18px;
+		font-weight: 600;
+	}
+	.resumo .rot {
+		font-size: 11px;
+		color: var(--cor-texto-suave);
+	}
+	.resumo .alerta .num {
+		color: #b45309;
+	}
 
-	code { font-family: ui-monospace, 'Cascadia Mono', Menlo, Consolas, monospace; font-size: 12.5px; }
+	.cluster {
+		border: 1px solid var(--cor-borda);
+		background: var(--cor-superficie);
+		margin-bottom: 10px;
+	}
+	.cluster.destaque {
+		border-color: #b45309;
+	}
+	.linha {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 6px 10px;
+		border-bottom: 1px solid var(--cor-borda);
+	}
+	.selo {
+		margin-left: auto;
+		background: #fef3c7;
+		color: #7c2d12;
+		border: 1px solid #f59e0b;
+		padding: 1px 8px;
+		font-size: 11px;
+	}
+
+	.tabela {
+		width: 100%;
+		border-collapse: collapse;
+	}
+	.tabela th,
+	.tabela td {
+		text-align: left;
+		padding: 4px 10px;
+		height: var(--altura-linha);
+		border-bottom: 1px solid var(--cor-borda);
+	}
+	.tabela th {
+		font-weight: 500;
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		color: var(--cor-texto-suave);
+	}
+	.tabela tbody tr:last-child td {
+		border-bottom: 0;
+	}
+	.clicavel {
+		cursor: pointer;
+	}
+	.clicavel:hover {
+		background: var(--cor-fundo);
+	}
+	.compacta td {
+		height: 26px;
+	}
+	.celula-ativa {
+		color: var(--cor-acento);
+		font-weight: 600;
+	}
+
+	.mono {
+		font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+		font-size: 12px;
+	}
+	.meta {
+		color: var(--cor-texto-suave);
+		font-size: 11px;
+	}
+	.badge {
+		border: 1px solid var(--cor-borda);
+		padding: 1px 6px;
+		font-size: 11px;
+		color: var(--cor-texto-suave);
+	}
+	.marca {
+		color: #b45309;
+	}
+	.nota {
+		color: var(--cor-texto-suave);
+		font-size: 12px;
+		margin: 10px 0 0;
+	}
+	.vazio {
+		color: var(--cor-texto-suave);
+		padding: 10px;
+	}
+
+	.busca-caixa {
+		border: 1px solid var(--cor-borda);
+		background: var(--cor-superficie);
+		margin-bottom: 14px;
+	}
+	.erro-linha {
+		color: #b91c1c;
+		padding: 8px 10px;
+		margin: 0;
+	}
+	.aviso-linha {
+		color: #92400e;
+		padding: 6px 10px;
+		margin: 0;
+		background: #fffbeb;
+	}
+
+	.campos {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 1px;
+		background: var(--cor-borda);
+		border: 1px solid var(--cor-borda);
+		margin: 0;
+	}
+	.campos > div {
+		background: var(--cor-superficie);
+		padding: 8px 10px;
+	}
+	.campos dt {
+		font-size: 11px;
+		color: var(--cor-texto-suave);
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+	}
+	.campos dd {
+		margin: 2px 0 0;
+	}
+
+	.f1 {
+		line-height: 1.7;
+		max-width: 70ch;
+	}
+
+	.tarefas {
+		border-top: 1px solid var(--cor-borda);
+		background: var(--cor-superficie);
+		max-height: 160px;
+		overflow: auto;
+	}
+	.tarefas.fechado {
+		max-height: none;
+	}
+	.tarefas ul {
+		list-style: none;
+		margin: 0;
+		padding: 4px 10px 8px;
+	}
+	.tarefas li {
+		height: 22px;
+		display: flex;
+		gap: 8px;
+		align-items: center;
+	}
+	.tarefas li.falha {
+		color: #b91c1c;
+	}
+
+	.link {
+		margin-left: auto;
+		border: 0;
+		background: transparent;
+		color: var(--cor-acento);
+		cursor: pointer;
+		font: inherit;
+		font-size: 12px;
+	}
+
+	.sev.critical {
+		color: #b91c1c;
+		font-weight: 600;
+	}
+	.sev.major {
+		color: #b45309;
+	}
 </style>

@@ -6,6 +6,8 @@
 //! - **Nenhum runtime legado**: não há `Command::new`, nem ponte para os clientes antigos.
 //!   A Fase 0/1 fala com o `mock-ne-huawei` (ainda por vir) através do trait `Transport`.
 
+mod ne;
+
 use gpon_domain::ops::Module;
 use gpon_domain::phase1::{self, PHASE1_MODULE};
 use gpon_domain::{entities, ops};
@@ -87,7 +89,11 @@ fn entidades_canonicas() -> Vec<(String, String)> {
 }
 
 pub fn run() {
+    // As fixtures dos dois perfis são carregadas aqui, uma vez: a UI nunca espera disco.
+    let aplicacao = ne::Aplicacao::carregar();
+
     tauri::Builder::default()
+        .manage(aplicacao)
         .plugin(tauri_plugin_log::Builder::new().build())
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
@@ -95,7 +101,14 @@ pub fn run() {
             modulos,
             operacoes_canonicas,
             escopo_fase1,
-            entidades_canonicas
+            entidades_canonicas,
+            ne::fontes,
+            ne::listar_olts,
+            ne::listar_pons,
+            ne::listar_onus,
+            ne::buscar_onu,
+            ne::massiva,
+            ne::listar_alarmes
         ])
         .run(tauri::generate_context!())
         .expect("falha ao iniciar a suíte");
@@ -125,6 +138,30 @@ mod tests {
             assert_eq!(op.evidencias.len(), 4, "operação {} sem os 4 módulos", op.id);
             assert!(op.evidencias.contains_key("C"), "operação {} sem coluna C", op.id);
         }
+    }
+
+    /// O app carrega os dois perfis das fixtures **embutidas** — é isso que garante que o `.exe`
+    /// empacotado funcione sem a pasta `fixtures/` do lado.
+    #[test]
+    fn aplicacao_carrega_os_dois_perfis_do_binario() {
+        let app = ne::Aplicacao::carregar();
+        let fontes = ne::fontes_de(&app);
+        assert_eq!(fontes.len(), 2);
+        assert!(fontes.iter().all(|f| f.modelo.starts_with("MA5")), "{:?}", fontes.iter().map(|f| &f.modelo).collect::<Vec<_>>());
+    }
+
+    /// O caso de uso âncora, de ponta a ponta: lista da PON → clusters de queda.
+    #[test]
+    fn massiva_agrupa_as_quedas_da_pon_do_perfil() {
+        let app = ne::Aplicacao::carregar();
+        let fonte = ne::fontes_de(&app)[0].id.clone();
+        let olt = ne::olts_de(&app, &fonte).unwrap()[0].id.clone();
+        let pon = ne::pons_de(&app, &fonte, &olt).unwrap()[0].clone();
+
+        let r = ne::massiva_de(&app, &fonte, &olt, pon.slot, pon.porta, Some(5)).unwrap();
+        assert_eq!(r.janela_min, 5);
+        assert_eq!(r.com_hora + r.sem_hora, pon.onus as usize, "toda ONU da PON entra na conta");
+        assert!(r.maior_cluster >= 1);
     }
 
     #[test]

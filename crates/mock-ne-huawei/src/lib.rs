@@ -92,12 +92,30 @@ fn ler_linhas(caminho: &PathBuf) -> Result<Vec<(usize, String)>, ErroFixture> {
         linha: 0,
         motivo: format!("não foi possível ler: {e}"),
     })?;
-    Ok(texto
+    Ok(linhas_de(&texto))
+}
+
+/// Linhas úteis com o número real da linha (comentário e linha vazia não contam como conteúdo,
+/// mas também não deslocam a numeração — o erro tem de apontar para o que o humano vê no arquivo).
+fn linhas_de(texto: &str) -> Vec<(usize, String)> {
+    texto
         .lines()
         .enumerate()
         .map(|(i, l)| (i + 1, l.trim().to_string()))
         .filter(|(_, l)| !l.is_empty() && !l.starts_with('#'))
-        .collect())
+        .collect()
+}
+
+const DADOS_MA5800: &str = include_str!("../fixtures/ma5800/dados.txt");
+const CATALOGO_MA5800: &str = include_str!("../fixtures/ma5800/catalogo_mml.txt");
+const DADOS_MA5600T: &str = include_str!("../fixtures/ma5600t/dados.txt");
+const CATALOGO_MA5600T: &str = include_str!("../fixtures/ma5600t/catalogo_mml.txt");
+
+fn textos_embutidos(modelo: ModeloNe) -> (&'static str, &'static str) {
+    match modelo {
+        ModeloNe::Ma5800 => (DADOS_MA5800, CATALOGO_MA5800),
+        ModeloNe::Ma5600t => (DADOS_MA5600T, CATALOGO_MA5600T),
+    }
 }
 
 /// `olt|id=x|modelo=y` → ("olt", [("id","x"), ("modelo","y")])
@@ -203,10 +221,41 @@ impl Fixture {
     ) -> Result<Self, ErroFixture> {
         let dados = dir.join("dados.txt");
         let nome_arq = dados.display().to_string();
+        let linhas = ler_linhas(&dados)?;
+        let catalogo_mml = Self::carregar_catalogo(dir)?;
+        Self::montar(modelo, linhas, catalogo_mml, nome_arq)
+    }
 
+    /// Carrega das fixtures **embutidas no binário** (`include_str!`).
+    ///
+    /// Existe porque `env!("CARGO_MANIFEST_DIR")` é um caminho da máquina de build: um `.exe`
+    /// empacotado não acharia `fixtures/` no disco do cliente. Com os textos embutidos, o app é
+    /// autossuficiente — e continua pequeno (as fixtures somam poucos KB).
+    pub fn carregar_embutido(modelo: ModeloNe) -> Result<Self, ErroFixture> {
+        let (dados, catalogo) = textos_embutidos(modelo);
+        let nome_arq = format!("<embutido:{}/dados.txt>", modelo.perfil());
+        let mut mapa = BTreeMap::new();
+        for (n, linha) in linhas_de(catalogo) {
+            let (op, cmd) = linha.split_once('=').ok_or_else(|| ErroFixture {
+                arquivo: format!("<embutido:{}/catalogo_mml.txt>", modelo.perfil()),
+                linha: n,
+                motivo: "esperado <operacao>=<comando>".to_string(),
+            })?;
+            mapa.insert(op.trim().to_string(), cmd.trim().to_string());
+        }
+        Self::montar(modelo, linhas_de(dados), mapa, nome_arq)
+    }
+
+    /// Núcleo do loader, já sobre texto: usado pelo disco (`carregar_de`) e pelo embutido.
+    fn montar(
+        modelo: ModeloNe,
+        linhas: Vec<(usize, String)>,
+        catalogo_mml: BTreeMap<String, String>,
+        nome_arq: String,
+    ) -> Result<Self, ErroFixture> {
         let mut t = InMemoryTransport::new(Module::C);
 
-        for (n, linha) in ler_linhas(&dados)? {
+        for (n, linha) in linhas {
             let (tipo, c) = separar(&linha);
             let erro = |m: String| ErroFixture { arquivo: nome_arq.clone(), linha: n, motivo: m };
 
@@ -290,7 +339,6 @@ impl Fixture {
             }
         }
 
-        let catalogo_mml = Self::carregar_catalogo(dir)?;
         Ok(Self { modelo, transporte: t, catalogo_mml })
     }
 

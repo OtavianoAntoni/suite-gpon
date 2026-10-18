@@ -25,7 +25,9 @@ crates/
     src/result.rs        resultados tipados (Olt, Onu, PonPort, Alarm, WriteAck...)
     src/error.rs         TransportError: NaoSuportado/NaoEncontrado/FalhaDoNe/Rede/RespostaInvalida
     src/testing.rs       InMemoryTransport — o "NE" das Fases 0/1, com os dois perfis de fixture
+    src/analise.rs       agrupar_massiva() + parser RFC3339 próprio (agrupa quedas por janela)
     tests/list_olts_in_memory.rs
+    tests/busca_ordem_volume.rs   busca por SN/ALIAS, ordem por queda, lista vazia, 1024 ONUs
   mock-ne-huawei/      o "NE" das Fases 0/1 — fixtures por família (MA5800 e MA5600T)
     fixtures/ma5800/     dados.txt + catalogo_mml.txt (dicionário MML desta família)
     fixtures/ma5600t/    dados.txt + catalogo_mml.txt
@@ -33,13 +35,16 @@ crates/
     src/bin/             CLI: --model ma5800|ma5600t [--catalogo]
     tests/por_perfil.rs  os 16 comandos rodando DUAS vezes (um teste por op × perfil)
 src-tauri/             casca desktop (comandos Tauri 2 + capabilities mínimas)
+  src/ne.rs            ponte UI↔NE: 7 comandos sobre CanonicalCmd + DTOs (lógica em funções *_de)
 ui/                    SvelteKit 3 + Svelte 5 + Bits UI; build estático em ui/build
+  src/routes/+page.svelte   estrutura U2000: árvore Fonte>OLT>PON>ONU, Find by, tela da PON (massiva)
+  src/lib/demo.ts      modo demonstração (só fora do Tauri, anunciado na tela)
 ```
 
 ## Rodar
 
 ```bash
-cargo test --workspace -j 4            # 79 testes: 19 domínio + 19 transporte + 41 mock
+cargo test --workspace -j 4            # 93 testes: 19 domínio + 28 transporte + 41 mock + 5 casca
 cargo test -p gpon-domain --offline    # caminho rápido (sem compilar o Tauri)
 bash scripts/verificar.sh              # gate completo: testes + lint de UI + build + régua da spec
 ```
@@ -81,12 +86,12 @@ GPON_SPEC=/caminho/para/SPEC.md cargo test -p gpon-domain
 
 | # | Passo | Estado |
 |---|---|---|
-| 1 | Esqueleto Tauri 2.x + SvelteKit/Svelte 5 + Bits UI, tema e tokens | **pronto** — UI builda (260 KB), tema claro/escuro persistido, navegação por seções, atalhos, casca Rust compila |
+| 1 | Esqueleto Tauri 2.x + SvelteKit/Svelte 5 + Bits UI, tema e tokens | **pronto** — UI builda, tema claro/escuro persistido, casca Rust compila |
 | 2 | Core de domínio + trait `Transport` + manifesto de capacidades | **domínio e `Transport` prontos e testados**; falta o `capabilities.toml` |
 | 3 | `mock-ne-huawei` com os 2 perfis (`ma5800` / `ma5600t`) | **pronto** — fixtures por família, catálogo MML por perfil, 32 testes (16 operações × 2 perfis) + busca por critério, ordem por hora de queda, volume de 1024 ONUs e fixture inválida |
-| 4 | As 12 leituras da §7.1 ligadas na UI | pendente (contrato e mock já existem; falta ligar na tela) |
+| 4 | As 12 leituras da §7.1 ligadas na UI | **parcial** — 6 ligadas com dado real (fontes, OLTs, PONs, ONUs, busca, alarmes) + a análise de massiva; faltam detalhe de ONU/OLT e export de inventário |
 | 5 | Matriz de capacidades (Ctrl+Shift+C) | **parcial** — tabela 33×4 na tela; falta a leitura do manifesto |
-| 6 | Badge "via {módulo}" (§3.4) + painel F1 (§5.1) | **parcial** — badge na tela; F1 em esqueleto |
+| 6 | Badge "via {módulo}" (§3.4) + painel F1 (§5.1) | **parcial** — badge nas telas; F1 com o resumo do escopo |
 
 ### O mock, por linha de comando
 
@@ -112,3 +117,13 @@ falha** e nada é empacotado. O mesmo gate está em `scripts/verificar.sh` para 
 É proposital: `cargo test` roda **offline** e sem hardware, e o núcleo não conhece transporte, banco
 nem Tauri. As dependências de rede (tokio, russh, snmp) entram atrás do trait `Transport` na Fase 2,
 quando existir OLT de laboratório para exercitar — o contrato e os testes não mudam.
+
+## A tela que resolve o trabalho chato
+
+Selecionar a ONU do cliente → a PON dela → a suíte lista **todas as ONUs da PON ordenadas pela hora da
+queda**, agrupa por janela (5 min por padrão, ajustável) e destaca o maior grupo como **possível
+massiva**, com export CSV para abrir chamado. É a operação que hoje custa clicar em cada cliente para
+comparar horários.
+
+Fora do app (navegador), a UI entra em **modo demonstração** e avisa na tela; dentro do app, todo dado vem
+do Rust por `CanonicalCmd`.

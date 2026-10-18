@@ -8,6 +8,7 @@
 //! rede, 100% determinístico. Na Fase 2 o mesmo `CanonicalCmd` passa a ser servido por um adaptador
 //! de rede de verdade, e nenhum teste de domínio muda.
 
+pub mod analise;
 pub mod cmd;
 pub mod error;
 pub mod result;
@@ -17,6 +18,7 @@ pub use cmd::{
     AuthMode, CanonicalCmd, CriterioBusca, OltId, OnuId, OrdemOnu, Page, PonRef, ProfileKind,
     SegmentoOnu, SourceId,
 };
+pub use analise::{agrupar_massiva, Cluster, Queda, JANELA_PADRAO_MIN};
 pub use error::TransportError;
 pub use result::{
     Alarm, CanonicalResult, ConnectivityReport, InventoryExport, Olt, Onu, OnuEstado, PonPort,

@@ -2994,6 +2994,8 @@ name = "suite-gpon"
 version = "0.1.0"
 dependencies = [
  "gpon-domain",
+ "gpon-transport",
+ "mock-ne-huawei",
  "serde",
  "serde_json",
  "tauri",
