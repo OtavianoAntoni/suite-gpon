@@ -74,6 +74,7 @@ impl fmt::Display for ErroFixture {
 impl std::error::Error for ErroFixture {}
 
 /// Uma fixture carregada: o transporte pronto + o catálogo MML do perfil.
+#[derive(Debug)]
 pub struct Fixture {
     pub modelo: ModeloNe,
     pub transporte: InMemoryTransport,
@@ -191,7 +192,15 @@ fn tipo_perfil(s: &str) -> Result<ProfileKind, String> {
 impl Fixture {
     /// Carrega `fixtures/<perfil>/dados.txt` + `catalogo_mml.txt`.
     pub fn carregar(modelo: ModeloNe) -> Result<Self, ErroFixture> {
-        let dir = dir_fixture(modelo);
+        Self::carregar_de(&dir_fixture(modelo), modelo)
+    }
+
+    /// Carrega de um diretório arbitrário. Existe para testar **fixture inválida** sem tocar nas
+    /// fixtures reais — o erro tem de ser diagnosticável (arquivo + linha), não silencioso.
+    pub fn carregar_de(
+        dir: &std::path::Path,
+        modelo: ModeloNe,
+    ) -> Result<Self, ErroFixture> {
         let dados = dir.join("dados.txt");
         let nome_arq = dados.display().to_string();
 
@@ -281,12 +290,14 @@ impl Fixture {
             }
         }
 
-        let catalogo_mml = Self::carregar_catalogo(modelo)?;
+        let catalogo_mml = Self::carregar_catalogo(dir)?;
         Ok(Self { modelo, transporte: t, catalogo_mml })
     }
 
-    fn carregar_catalogo(modelo: ModeloNe) -> Result<BTreeMap<String, String>, ErroFixture> {
-        let caminho = dir_fixture(modelo).join("catalogo_mml.txt");
+    fn carregar_catalogo(
+        dir: &std::path::Path,
+    ) -> Result<BTreeMap<String, String>, ErroFixture> {
+        let caminho = dir.join("catalogo_mml.txt");
         let nome = caminho.display().to_string();
         let mut mapa = BTreeMap::new();
         for (n, linha) in ler_linhas(&caminho)? {
@@ -350,5 +361,55 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Terceira lacuna do 3a: **fixture inválida**. O erro tem de dizer onde, e o loader não pode
+    /// "engolir" uma linha que não entende.
+    #[test]
+    fn fixture_com_linha_invalida_aponta_arquivo_e_linha() {
+        let dir = std::env::temp_dir().join(format!("mock-ne-huawei-ruim-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("dados.txt"),
+            "fonte|id=lab-1|rotulo=lab|host=10.0.0.10|protocolo=ssh|credencial_ref=cofre://lab-1\n\
+             registro_que_nao_existe|id=1\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("catalogo_mml.txt"), "list_sources=display device\n").unwrap();
+
+        let e = Fixture::carregar_de(&dir, ModeloNe::Ma5800)
+            .expect_err("linha desconhecida tem de falhar");
+        assert_eq!(e.linha, 2, "o erro precisa apontar a linha: {e}");
+        assert!(
+            e.motivo.contains("tipo de registro desconhecido"),
+            "motivo pouco claro: {}",
+            e.motivo
+        );
+        assert!(e.to_string().starts_with(&dir.join("dados.txt").display().to_string()));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Campo obrigatório ausente também tem de ser diagnosticável.
+    #[test]
+    fn fixture_com_campo_faltando_diz_qual_campo() {
+        let dir = std::env::temp_dir().join(format!("mock-ne-huawei-campo-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // OLT sem `modelo` (campo obrigatório)
+        std::fs::write(
+            dir.join("dados.txt"),
+            "olt|id=olt-1|fonte=lab-1|vendor=Huawei|serial=X|ip=10.0.0.11|sw=V1|uptime=1|slots=1|temp=40\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("catalogo_mml.txt"), "list_sources=display device\n").unwrap();
+
+        let e = Fixture::carregar_de(&dir, ModeloNe::Ma5600t)
+            .expect_err("campo obrigatório ausente tem de falhar");
+        assert!(e.motivo.contains("modelo"), "motivo: {}", e.motivo);
+        assert_eq!(e.linha, 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

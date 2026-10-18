@@ -8,7 +8,8 @@
 
 use gpon_transport::testing::{bloquear, InMemoryTransport};
 use gpon_transport::{
-    CanonicalCmd, CanonicalResult, Module, OltId, Page, SegmentoOnu, SourceId, Transport,
+    CanonicalCmd, CanonicalResult, Module, OltId, OrdemOnu, Page, SegmentoOnu, SourceId,
+    Transport,
     TransportError,
 };
 use std::collections::BTreeSet;
@@ -98,6 +99,7 @@ fn listagem_de_onus_pagina_e_devolve_o_total() {
         filtro: None,
         segmento: SegmentoOnu::Todas,
         page: Page { offset: 0, limit: 1 },
+        ordenar_por: OrdemOnu::Sn,
     }))
     .expect("list_onus responde");
 

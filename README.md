@@ -39,7 +39,7 @@ ui/                    SvelteKit 3 + Svelte 5 + Bits UI; build estático em ui/b
 ## Rodar
 
 ```bash
-cargo test --workspace -j 4            # 71 testes: 19 domínio + 10 transporte + 39 mock + 3 contrato da UI
+cargo test --workspace -j 4            # 79 testes: 19 domínio + 19 transporte + 41 mock
 cargo test -p gpon-domain --offline    # caminho rápido (sem compilar o Tauri)
 bash scripts/verificar.sh              # gate completo: testes + lint de UI + build + régua da spec
 ```
@@ -83,7 +83,7 @@ GPON_SPEC=/caminho/para/SPEC.md cargo test -p gpon-domain
 |---|---|---|
 | 1 | Esqueleto Tauri 2.x + SvelteKit/Svelte 5 + Bits UI, tema e tokens | **pronto** — UI builda (260 KB), tema claro/escuro persistido, navegação por seções, atalhos, casca Rust compila |
 | 2 | Core de domínio + trait `Transport` + manifesto de capacidades | **domínio e `Transport` prontos e testados**; falta o `capabilities.toml` |
-| 3 | `mock-ne-huawei` com os 2 perfis (`ma5800` / `ma5600t`) | **pronto** — fixtures em arquivo por família, catálogo MML por perfil, 32 testes (16 operações × 2 perfis) |
+| 3 | `mock-ne-huawei` com os 2 perfis (`ma5800` / `ma5600t`) | **pronto** — fixtures por família, catálogo MML por perfil, 32 testes (16 operações × 2 perfis) + busca por critério, ordem por hora de queda, volume de 1024 ONUs e fixture inválida |
 | 4 | As 12 leituras da §7.1 ligadas na UI | pendente (contrato e mock já existem; falta ligar na tela) |
 | 5 | Matriz de capacidades (Ctrl+Shift+C) | **parcial** — tabela 33×4 na tela; falta a leitura do manifesto |
 | 6 | Badge "via {módulo}" (§3.4) + painel F1 (§5.1) | **parcial** — badge na tela; F1 em esqueleto |

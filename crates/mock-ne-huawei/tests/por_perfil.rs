@@ -6,8 +6,8 @@
 
 use gpon_transport::testing::bloquear;
 use gpon_transport::{
-    AuthMode, CanonicalCmd, CanonicalResult, OltId, OnuId, Page, PonRef, ProfileKind, SegmentoOnu,
-    SourceId, Transport,
+    AuthMode, CanonicalCmd, CanonicalResult, CriterioBusca, OltId, OnuId, OrdemOnu, Page, PonRef,
+    ProfileKind, SegmentoOnu, SourceId, Transport,
 };
 use mock_ne_huawei::{Fixture, ModeloNe};
 use std::collections::BTreeSet;
@@ -132,6 +132,7 @@ fn verifica_op06_list_onus(f: &Fixture, e: &Expectativa) {
         filtro: None,
         segmento: SegmentoOnu::Todas,
         page: Page::primeira(100),
+        ordenar_por: OrdemOnu::Sn,
     }))
     .expect("list_onus");
 
@@ -150,6 +151,7 @@ fn verifica_op06_list_onus(f: &Fixture, e: &Expectativa) {
         filtro: None,
         segmento: SegmentoOnu::Todas,
         page: Page { offset: 0, limit: 1 },
+        ordenar_por: OrdemOnu::Sn,
     }))
     .expect("list_onus paginado");
     match r {
@@ -163,7 +165,11 @@ fn verifica_op06_list_onus(f: &Fixture, e: &Expectativa) {
 
 fn verifica_op07_find_onu_by_sn(f: &Fixture) {
     let sn = f.transporte.onus[0].sn.clone();
-    let r = bloquear(f.transporte.exec(CanonicalCmd::FindOnuBySn { source: fonte(), sn: sn.clone() }))
+    let r = bloquear(f.transporte.exec(CanonicalCmd::BuscarOnu {
+        source: fonte(),
+        criterio: CriterioBusca::Sn,
+        valor: sn.clone(),
+    }))
         .expect("find_onu_by_sn");
     match r {
         CanonicalResult::Onu(o) => assert_eq!(o.sn, sn, "achou pela SN"),

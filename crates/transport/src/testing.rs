@@ -7,7 +7,8 @@
 //! trabalho do `mock-ne-huawei` com fixtures (passo 3b) e, na rede de verdade, da Fase 2.
 
 use crate::cmd::{
-    CanonicalCmd, OltId, OnuId, Page, PonRef, ProfileKind, SegmentoOnu, SourceId,
+    CanonicalCmd, CriterioBusca, OltId, OnuId, OrdemOnu, Page, PonRef, ProfileKind, SegmentoOnu,
+    SourceId,
 };
 use crate::error::TransportError;
 use crate::result::{
@@ -252,7 +253,7 @@ impl InMemoryTransport {
                 Ok(CanonicalResult::PonPorts(pons))
             }
 
-            CanonicalCmd::ListOnus { olt, pon, filtro, segmento, page } => {
+            CanonicalCmd::ListOnus { olt, pon, filtro, segmento, page, ordenar_por } => {
                 let _ = self.olt(&olt)?;
                 let mut itens: Vec<Onu> = self
                     .onus
@@ -276,25 +277,63 @@ impl InMemoryTransport {
                     })
                     .cloned()
                     .collect();
-                itens.sort_by(|a, b| a.sn.cmp(&b.sn));
+                ordenar(&mut itens, ordenar_por);
                 let total = itens.len();
                 let janela: Vec<Onu> = paginar(itens, page);
                 Ok(CanonicalResult::Onus { itens: janela, total })
             }
 
-            CanonicalCmd::FindOnuBySn { source, sn } => {
+            CanonicalCmd::BuscarOnu { source, criterio, valor } => {
                 if !self.fontes.iter().any(|f| f.id == source) {
                     return Err(TransportError::NaoEncontrado {
                         o_que: "fonte".into(),
                         chave: source.to_string(),
                     });
                 }
-                let achada = self.onus.iter().find(|o| o.sn.eq_ignore_ascii_case(&sn)).cloned();
-                match achada {
-                    Some(onu) => Ok(CanonicalResult::Onu(onu)),
-                    None => Err(TransportError::NaoEncontrado {
-                        o_que: "ONU com SN".into(),
-                        chave: sn,
+                // Valor vazio não é busca: evita devolver "o primeiro que aparecer".
+                if valor.trim().is_empty() {
+                    return Err(TransportError::NaoEncontrado {
+                        o_que: format!("ONU por {}", criterio.as_str()),
+                        chave: "(valor vazio)".into(),
+                    });
+                }
+                match criterio {
+                    CriterioBusca::Sn => {
+                        match self.onus.iter().find(|o| o.sn.eq_ignore_ascii_case(&valor)).cloned() {
+                            Some(onu) => Ok(CanonicalResult::Onu(onu)),
+                            None => Err(TransportError::NaoEncontrado {
+                                o_que: "ONU com SN".into(),
+                                chave: valor,
+                            }),
+                        }
+                    }
+                    // ALIAS **não é único**: pode achar mais de uma. Devolver uma lista é o
+                    // honesto; o chamador decide o que fazer com a ambiguidade.
+                    CriterioBusca::Alias => {
+                        let alvo = valor.trim().to_lowercase();
+                        let mut achadas: Vec<Onu> = self
+                            .onus
+                            .iter()
+                            .filter(|o| {
+                                o.nome.to_lowercase().contains(&alvo)
+                                    || o.descricao.to_lowercase().contains(&alvo)
+                            })
+                            .cloned()
+                            .collect();
+                        achadas.sort_by(|a, b| a.sn.cmp(&b.sn));
+                        match achadas.len() {
+                            0 => Err(TransportError::NaoEncontrado {
+                                o_que: "ONU com ALIAS".into(),
+                                chave: valor,
+                            }),
+                            1 => Ok(CanonicalResult::Onu(achadas.remove(0))),
+                            _ => Ok(CanonicalResult::Onus { total: achadas.len(), itens: achadas }),
+                        }
+                    }
+                    // Depende do serviço da ONU (`list_services`), que é Fase 2 (§7.5).
+                    CriterioBusca::Vlan => Err(TransportError::IndisponivelNestaFase {
+                        recurso: "busca por VLAN do cliente (depende do serviço da ONU — Fase 2)"
+                            .into(),
                     }),
                 }
             }
@@ -410,6 +449,24 @@ impl InMemoryTransport {
         gpon_domain::ops::by_id(id)
             .map(|o| o.evidence.of(self.module).is_usable())
             .unwrap_or(false)
+    }
+}
+
+/// Ordenação da listagem. O contrato promete **ordem determinística** — nunca a ordem de
+/// descoberta do NE, que muda com o firmware.
+fn ordenar(itens: &mut [Onu], ordem: OrdemOnu) {
+    match ordem {
+        OrdemOnu::Sn => itens.sort_by(|a, b| a.sn.cmp(&b.sn)),
+        OrdemOnu::UltimoRegistro => itens.sort_by(|a, b| {
+            match (&a.ultimo_registro, &b.ultimo_registro) {
+                // mais recente primeiro (ISO-8601 com o mesmo offset ordena lexicograficamente)
+                (Some(x), Some(y)) => y.cmp(x),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                // desempate estável: quem não tem registro fica em ordem de SN
+                (None, None) => a.sn.cmp(&b.sn),
+            }
+        }),
     }
 }
 

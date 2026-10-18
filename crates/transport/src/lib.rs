@@ -14,7 +14,8 @@ pub mod result;
 pub mod testing;
 
 pub use cmd::{
-    AuthMode, CanonicalCmd, OltId, OnuId, Page, PonRef, ProfileKind, SegmentoOnu, SourceId,
+    AuthMode, CanonicalCmd, CriterioBusca, OltId, OnuId, OrdemOnu, Page, PonRef, ProfileKind,
+    SegmentoOnu, SourceId,
 };
 pub use error::TransportError;
 pub use result::{

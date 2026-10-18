@@ -20,6 +20,9 @@ pub enum TransportError {
         esperado: &'static str,
         recebido: String,
     },
+    /// O recurso existe no modelo, mas depende de algo que só chega numa fase seguinte.
+    /// É diferente de `NaoSuportado`: aqui o módulo suporta, **a suíte ainda não**.
+    IndisponivelNestaFase { recurso: String },
 }
 
 impl fmt::Display for TransportError {
@@ -35,6 +38,9 @@ impl fmt::Display for TransportError {
             Self::Rede { mensagem } => write!(f, "falha de rede: {mensagem}"),
             Self::RespostaInvalida { esperado, recebido } => {
                 write!(f, "resposta fora do formato esperado ({esperado}): {recebido}")
+            }
+            Self::IndisponivelNestaFase { recurso } => {
+                write!(f, "indisponível nesta fase: {recurso}")
             }
         }
     }

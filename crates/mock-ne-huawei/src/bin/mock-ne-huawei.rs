@@ -80,6 +80,7 @@ fn main() {
                 filtro: None,
                 segmento: gpon_transport::SegmentoOnu::Todas,
                 page: gpon_transport::Page::primeira(10),
+                ordenar_por: gpon_transport::OrdemOnu::Sn,
             },
         ),
     ] {
@@ -99,6 +100,7 @@ fn main() {
         filtro: None,
         segmento: gpon_transport::SegmentoOnu::Todas,
         page: gpon_transport::Page::primeira(1),
+        ordenar_por: gpon_transport::OrdemOnu::Sn,
     })) {
         println!("total de ONUs pelo contrato: {total}");
     }

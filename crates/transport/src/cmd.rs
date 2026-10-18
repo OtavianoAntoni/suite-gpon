@@ -145,6 +145,46 @@ pub enum SegmentoOnu {
     Los,
 }
 
+/// **Por que** o operador está procurando a ONU. SN e ALIAS vêm do trabalho de campo (§7.5);
+/// VLAN depende do serviço da ONU e só existe a partir da Fase 2 (`list_services`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CriterioBusca {
+    Sn,
+    Alias,
+    Vlan,
+}
+
+impl CriterioBusca {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Sn => "sn",
+            Self::Alias => "alias",
+            Self::Vlan => "vlan",
+        }
+    }
+}
+
+/// Ordem da listagem de ONUs.
+///
+/// `UltimoRegistro` existe por causa do caso de uso âncora (§7.4): identificar possível massiva
+/// é olhar a PON **ordenada pela hora da queda**, não pelo SN.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OrdemOnu {
+    #[default]
+    Sn,
+    /// Mais recente primeiro; ONU sem registro vai para o fim (ver `testing.rs`).
+    UltimoRegistro,
+}
+
+impl OrdemOnu {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Sn => "sn",
+            Self::UltimoRegistro => "ultimo_registro",
+        }
+    }
+}
+
 /// Um comando canônico. Cobre o escopo da **Fase 1** (16 operações, §7.1); as outras 17 entram
 /// quando a fase delas chegar — e o teste `toda_operacao_do_escopo_da_fase_1_tem_comando_canonico`
 /// impede que este enum e a SPEC divergirem.
@@ -169,10 +209,14 @@ pub enum CanonicalCmd {
         filtro: Option<String>,
         segmento: SegmentoOnu,
         page: Page,
+        ordenar_por: OrdemOnu,
     },
-    FindOnuBySn {
+    /// Mesma operação canônica da §1.3 (`find_onu_by_sn`), com **critério explícito**: o operador
+    /// procura por SN, por ALIAS (nome/descrição) ou, na Fase 2, por VLAN do cliente.
+    BuscarOnu {
         source: SourceId,
-        sn: String,
+        criterio: CriterioBusca,
+        valor: String,
     },
     GetOnu {
         onu: OnuId,
@@ -220,7 +264,8 @@ impl CanonicalCmd {
             Self::GetOltInfo { .. } => "get_olt_info",
             Self::ListPonPorts { .. } => "list_pon_ports",
             Self::ListOnus { .. } => "list_onus",
-            Self::FindOnuBySn { .. } => "find_onu_by_sn",
+            // A operação canônica continua sendo a §1.3; o critério é parâmetro (§7.4/§7.5).
+            Self::BuscarOnu { .. } => "find_onu_by_sn",
             Self::GetOnu { .. } => "get_onu",
             Self::GetOnuAuthMode { .. } => "get_onu_auth_mode",
             Self::ListProfiles { .. } => "list_profiles",
@@ -255,8 +300,13 @@ impl CanonicalCmd {
                 filtro: None,
                 segmento: SegmentoOnu::Todas,
                 page: Page::primeira(100),
+                ordenar_por: OrdemOnu::Sn,
             },
-            Self::FindOnuBySn { source: s.clone(), sn: String::new() },
+            Self::BuscarOnu {
+                source: s.clone(),
+                criterio: CriterioBusca::Sn,
+                valor: String::new(),
+            },
             Self::GetOnu { onu: u.clone() },
             Self::GetOnuAuthMode { onu: u.clone() },
             Self::ListProfiles { source: s.clone(), kind: ProfileKind::Line },
