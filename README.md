@@ -144,3 +144,16 @@ Nenhuma operação que muda equipamento sai de um clique só. O fluxo é sempre:
 A credencial nunca fica em arquivo: o que o app guarda é uma referência (`cofre://lab-1`) e o segredo
 mora no cofre do sistema (Windows Credential Manager, Secret Service, Keychain). Se o cofre não estiver
 disponível, a suíte **recusa** em vez de cair para texto — cair para texto é o que os legados faziam.
+
+## Idioma da documentação
+
+Documentação, mensagens de interface e comentários de tela são em **português do Brasil**.
+
+README que vem de ferramenta é traduzido **ao entrar no repo** — foi o caso do `ui/README.md`, que era
+o boilerplate em inglês do `sv create`. Se aparecer texto em inglês em documentação ou em tela, trate
+como pendência e traduza na hora; não deixe "para depois".
+
+O que **não** se traduz: identificadores de código — nomes de tipo, de crate, de comando Tauri e de
+campo (`CanonicalCmd`, `Transport`, `get_onu_optical`, `WriteAck`). Eles são o contrato entre as
+camadas e o que a spec e os testes conferem; renomear por estética quebra os dois.
+
