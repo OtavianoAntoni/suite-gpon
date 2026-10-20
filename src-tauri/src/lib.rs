@@ -107,6 +107,7 @@ pub fn run() {
             ne::fontes,
             ne::listar_olts,
             ne::listar_pons,
+            ne::detalhe_olt,
             ne::listar_onus,
             ne::buscar_onu,
             ne::massiva,

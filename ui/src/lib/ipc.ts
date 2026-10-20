@@ -81,6 +81,23 @@ export type Olt = {
 	temperatura_c: number | null;
 };
 
+/** Resposta de `get_olt_info` — o que a lista de OLTs não traz (serial, uptime cru). */
+export type OltDetalhe = {
+	id: string;
+	fonte: string;
+	modelo: string;
+	vendor: string;
+	serial: string;
+	ip: string;
+	sw_version: string;
+	slots: number;
+	uptime_dias: number;
+	uptime_horas: number;
+	temperatura_c: number | null;
+	/** `null` = a contagem de PONs não pôde ser lida agora (não é "0 PONs"). */
+	pons: number | null;
+};
+
 export type Pon = {
 	olt: string;
 	slot: number;
@@ -189,11 +206,16 @@ export type PedidoEscrita = {
 	nome: string;
 	atual: string;
 	novo: string;
+	/** Só em `autorizar`: modo do contrato (sn | loid | password | none). */
+	modo?: string;
+	/** Só em `autorizar`: perfil a aplicar (opcional — o NE usa o padrão). */
+	perfil?: string;
 };
 
 export type Ponte = {
 	fontes(): Promise<Fonte[]>;
 	olts(fonte: string): Promise<Olt[]>;
+	detalheOlt(fonte: string, olt: string): Promise<OltDetalhe>;
 	pons(fonte: string, olt: string): Promise<Pon[]>;
 	onus(fonte: string, olt: string, pon?: { slot: number; porta: number }, ordem?: string): Promise<PaginaOnus>;
 	buscar(fonte: string, criterio: string, valor: string): Promise<Busca>;
@@ -211,6 +233,7 @@ async function real<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
 export const ponte: Ponte = {
 	fontes: () => real<Fonte[]>('fontes', {}),
 	olts: (fonte) => real<Olt[]>('listar_olts', { fonte }),
+	detalheOlt: (fonte, olt) => real<OltDetalhe>('detalhe_olt', { fonte, olt }),
 	pons: (fonte, olt) => real<Pon[]>('listar_pons', { fonte, olt }),
 	onus: (fonte, olt, pon, ordem = 'sn') =>
 		real<PaginaOnus>('listar_onus', {

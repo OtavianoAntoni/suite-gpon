@@ -13,6 +13,7 @@ import type {
 	Fonte,
 	Massiva,
 	Olt,
+	OltDetalhe,
 	Onu,
 	PaginaOnus,
 	Pon,
@@ -111,6 +112,23 @@ export const ponteDemo: Ponte = {
 	async olts() {
 		return [OLT];
 	},
+	// A demonstração devolve o MESMO formato do contrato — e diz na tela que é demo.
+	async detalheOlt(): Promise<OltDetalhe> {
+		return {
+			id: OLT.id,
+			fonte: FONTE.id,
+			modelo: OLT.modelo,
+			vendor: OLT.vendor,
+			serial: '48575443A1B2C3D4',
+			ip: OLT.ip,
+			sw_version: OLT.sw_version,
+			slots: OLT.slots,
+			uptime_dias: OLT.uptime_dias,
+			uptime_horas: OLT.uptime_dias * 24,
+			temperatura_c: OLT.temperatura_c,
+			pons: PONS.length
+		};
+	},
 	async pons() {
 		return PONS;
 	},
@@ -163,13 +181,27 @@ export const ponteDemo: Ponte = {
 		const resumo =
 			pedido.tipo === 'reset'
 				? `reiniciar a ONU ${alvo} na PON ${pedido.slot}/${pedido.porta}`
-				: `mudar a descrição de ${alvo}: "${pedido.atual}" → "${pedido.novo}"`;
+				: pedido.tipo === 'descricao'
+					? `mudar a descrição de ${alvo}: "${pedido.atual}" → "${pedido.novo}"`
+					: pedido.tipo === 'autorizar'
+						? `autorizar a ONU ${pedido.sn} na PON ${pedido.slot}/${pedido.porta} (modo ${pedido.modo}${
+								pedido.perfil ? `, perfil ${pedido.perfil}` : ''
+							})`
+						: `desautorizar a ONU ${alvo} da PON ${pedido.slot}/${pedido.porta}`;
+		const operacao =
+			pedido.tipo === 'reset'
+				? 'reset_onu'
+				: pedido.tipo === 'descricao'
+					? 'set_onu_description'
+					: pedido.tipo === 'autorizar'
+						? 'authorize_onu'
+						: 'deauthorize_onu';
 		return {
 			token: 'demo0000demo0000',
 			token_curto: 'demo0000',
 			validade_s: 120,
-			operacao: pedido.tipo === 'reset' ? 'reset_onu' : 'set_onu_description',
-			alvo: pedido.onu,
+			operacao,
+			alvo: pedido.onu || pedido.sn,
 			resumo
 		};
 	},

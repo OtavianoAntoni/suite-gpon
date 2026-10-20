@@ -291,6 +291,65 @@ pub fn pons_de(app: &Aplicacao, fonte: &str, olt: &str) -> Result<Vec<PonDto>, S
     }
 }
 
+/// `get_olt_info` — o detalhe que a lista não traz: serial, uptime cru e temperatura.
+///
+/// A contagem de PONs vem de `list_pon_ports` (operação canônica própria). Não inventamos campo
+/// novo aqui para não criar um segundo caminho para o mesmo dado (§1.3: um caminho por operação).
+#[derive(Serialize, Debug, Clone)]
+pub struct OltDetalheDto {
+    pub id: String,
+    pub fonte: String,
+    pub modelo: String,
+    pub vendor: String,
+    /// Serial do equipamento — o campo que a lista de OLTs não devolve.
+    pub serial: String,
+    pub ip: String,
+    pub sw_version: String,
+    pub slots: u16,
+    pub uptime_dias: u64,
+    pub uptime_horas: u64,
+    /// `None` = o NE não informou temperatura (não é zero!).
+    pub temperatura_c: Option<i16>,
+    /// `None` = a contagem de PONs não pôde ser lida agora (a tela diz isso, não mostra "0").
+    pub pons: Option<usize>,
+}
+
+pub fn detalhe_olt_de(app: &Aplicacao, fonte: &str, olt: &str) -> Result<OltDetalheDto, String> {
+    let ne = app.ne(fonte)?;
+    // Pedir detalhe de uma OLT que esta fonte não serve é erro de digitação, não "dado vazio":
+    // falhar alto aqui evita a tela mostrar uma OLT em branco como se o NE não soubesse responder.
+    if !ne.transporte.olts.iter().any(|o| o.id.as_str() == olt) {
+        return Err(format!("a fonte {fonte} não serve a OLT {olt}"));
+    }
+
+    let detalhe = match bloquear(ne.transporte.exec(CanonicalCmd::GetOltInfo { olt: OltId::novo(olt) }))
+        .map_err(|e| e.to_string())?
+    {
+        CanonicalResult::Olt(o) => OltDetalheDto {
+            id: o.id.as_str().to_string(),
+            fonte: o.fonte.as_str().to_string(),
+            modelo: o.modelo.clone(),
+            vendor: o.vendor.clone(),
+            serial: o.serial.clone(),
+            ip: o.ip.clone(),
+            sw_version: o.sw_version.clone(),
+            slots: o.slots,
+            uptime_dias: o.uptime_s / 86_400,
+            uptime_horas: o.uptime_s / 3_600,
+            temperatura_c: o.temperatura_c,
+            pons: None,
+        },
+        outro => return Err(format!("get_olt_info devolveu {}", outro.tipo())),
+    };
+
+    let pons = match bloquear(ne.transporte.exec(CanonicalCmd::ListPonPorts { olt: OltId::novo(olt) })) {
+        Ok(CanonicalResult::PonPorts(itens)) => Some(itens.len()),
+        _ => None,
+    };
+
+    Ok(OltDetalheDto { pons, ..detalhe })
+}
+
 pub fn onus_da_pon(
     app: &Aplicacao,
     fonte: &str,
@@ -672,6 +731,15 @@ pub fn listar_pons(
 }
 
 #[tauri::command]
+pub fn detalhe_olt(
+    app: tauri::State<'_, Aplicacao>,
+    fonte: String,
+    olt: String,
+) -> Result<OltDetalheDto, String> {
+    detalhe_olt_de(&*app, &fonte, &olt)
+}
+
+#[tauri::command]
 pub fn listar_onus(
     app: tauri::State<'_, Aplicacao>,
     fonte: String,
@@ -756,4 +824,74 @@ pub fn cofre_gravar(
     segredo: String,
 ) -> Result<(), String> {
     cofre_gravar_de(&*app, &referencia, &segredo)
+}
+
+#[cfg(test)]
+mod testes {
+    use super::*;
+
+    fn app() -> Aplicacao {
+        Aplicacao::carregar()
+    }
+
+    #[test]
+    fn detalhe_da_olt_traz_o_que_a_lista_nao_traz() {
+        let app = app();
+        let fonte = app.nes[0].fonte.as_str().to_string();
+        let olt = app.nes[0].transporte.olts[0].id.as_str().to_string();
+
+        let lista = olts_de(&app, &fonte).expect("listar OLTs");
+        let detalhe = detalhe_olt_de(&app, &fonte, &olt).expect("detalhe da OLT");
+
+        // O serial é o motivo de `get_olt_info` existir: ele NÃO está no DTO da lista.
+        assert!(!detalhe.serial.is_empty(), "serial vazio na fixture do piloto");
+        assert_eq!(detalhe.id, olt);
+        assert_eq!(detalhe.fonte, fonte);
+        assert_eq!(detalhe.modelo, lista[0].modelo);
+        assert_eq!(detalhe.ip, lista[0].ip);
+        // Uptime em dias e em horas vêm do MESMO segundo do NE: não podem divergir.
+        assert_eq!(detalhe.uptime_dias * 24, detalhe.uptime_horas);
+        // A contagem de PONs é de `list_pon_ports`, não campo inventado no detalhe.
+        assert_eq!(detalhe.pons, Some(pons_de(&app, &fonte, &olt).expect("listar PONs").len()));
+    }
+
+    #[test]
+    fn detalhe_de_olt_de_outra_fonte_falha_alto() {
+        let app = app();
+        let fonte_a = app.nes[0].fonte.as_str().to_string();
+        let olt_b = app.nes[1].transporte.olts[0].id.as_str().to_string();
+
+        let erro = detalhe_olt_de(&app, &fonte_a, &olt_b).expect_err("deveria recusar");
+        assert!(
+            erro.contains("não serve a OLT"),
+            "mensagem precisa dizer que a fonte não serve a OLT: {erro}"
+        );
+    }
+
+    #[test]
+    fn detalhe_com_fonte_desconhecida_falha_alto() {
+        let app = app();
+        let olt = app.nes[0].transporte.olts[0].id.as_str().to_string();
+
+        let erro = detalhe_olt_de(&app, "fonte-que-nao-existe", &olt).expect_err("deveria recusar");
+        assert!(erro.contains("fonte desconhecida"), "mensagem: {erro}");
+    }
+
+    #[test]
+    fn as_duas_familias_respondem_o_detalhe() {
+        // O mock tem dois perfis (MA5800 e MA5600T): o detalhe não pode funcionar só num deles.
+        let app = app();
+        assert_eq!(app.nes.len(), 2, "esperava dois perfis de fixture");
+
+        let mut modelos = Vec::new();
+        for ne in &app.nes {
+            let fonte = ne.fonte.as_str().to_string();
+            let olt = ne.transporte.olts[0].id.as_str().to_string();
+            let d = detalhe_olt_de(&app, &fonte, &olt).expect("detalhe em cada perfil");
+            modelos.push(d.modelo.clone());
+        }
+        modelos.sort();
+        modelos.dedup();
+        assert_eq!(modelos.len(), 2, "os dois perfis devolveram o mesmo modelo: {modelos:?}");
+    }
 }

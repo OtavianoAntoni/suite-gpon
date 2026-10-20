@@ -22,6 +22,7 @@
 		type Onu,
 		type Operacao,
 		type Olt,
+		type OltDetalhe,
 		type Previa,
 		type Pon,
 		type Ponte
@@ -41,6 +42,12 @@
 	let oltSel = $state<Olt | null>(null);
 	let ponSel = $state<Pon | null>(null);
 	let onuSel = $state<Onu | null>(null);
+
+	/** Resposta de `get_olt_info` para a OLT selecionada (operação canônica própria, não campo da lista). */
+	let oltDetalhe = $state<OltDetalhe | null>(null);
+	/** Formulário de autorização de ONU — a escrita passa pela mesma trava de prévia/token. */
+	let formAut = $state({ sn: '', modo: 'sn', perfil: '' });
+	let mostrandoAutorizar = $state(false);
 
 	let area = $state<'inventario' | 'alarmes' | 'matriz' | 'auditoria' | 'f1'>('inventario');
 	let carregando = $state(true);
@@ -118,7 +125,14 @@
 		oltSel = o;
 		aberto[o.id] = true;
 		ponSel = null;
+		onuSel = null;
 		massiva = null;
+		oltDetalhe = null;
+		// `get_olt_info` é operação canônica própria: não lemos campo extra direto do mock.
+		ponte!
+			.detalheOlt(fonteSel?.id ?? '', o.id)
+			.then((d: OltDetalhe) => (oltDetalhe = d))
+			.catch((e: unknown) => registrar(`detalhe da OLT ${o.id}: ${e}`, 'erro'));
 		if (pons[o.id]) return;
 		try {
 			pons[o.id] = await ponte!.pons(fonteSel!.id, o.id);
@@ -230,6 +244,60 @@
 		}
 	}
 
+	/**
+	 * Autorizar ONU: `authorize_onu` (§1.3) — escrita, portanto prévia obrigatória.
+	 * O SN é normalizado aqui (maiúsculas, sem separador) porque o NE compara assim e o operador
+	 * digita de tudo; normalizar depois da prévia mostraria um resumo que não é o que vai ser enviado.
+	 */
+	async function pedirPreviaAutorizacao() {
+		if (!ponte || !ponSel) return;
+		erroEscrita = null;
+		confirmacao = null;
+		try {
+			previa = await ponte.previaEscrita({
+				tipo: 'autorizar',
+				olt: ponSel.olt,
+				slot: ponSel.slot,
+				porta: ponSel.porta,
+				onu: '',
+				sn: formAut.sn.trim().toUpperCase(),
+				nome: '',
+				atual: '',
+				novo: '',
+				modo: formAut.modo,
+				perfil: formAut.perfil.trim() || undefined
+			});
+			registrar(`prévia de autorização: ${previa.resumo}`);
+		} catch (e) {
+			erroEscrita = String(e).replace(/^Error:\s*/, '');
+			registrar(`prévia recusada: ${erroEscrita}`, 'erro');
+		}
+	}
+
+	/** Desautorizar ONU: `deauthorize_onu` (§1.3) — destrutiva, mesma trava. */
+	async function pedirPreviaDesautorizacao() {
+		if (!ponte || !onuSel) return;
+		erroEscrita = null;
+		confirmacao = null;
+		try {
+			previa = await ponte.previaEscrita({
+				tipo: 'desautorizar',
+				olt: onuSel.olt,
+				slot: onuSel.slot,
+				porta: onuSel.porta,
+				onu: onuSel.id,
+				sn: onuSel.sn,
+				nome: onuSel.nome,
+				atual: '',
+				novo: ''
+			});
+			registrar(`prévia de desautorização: ${previa.resumo}`);
+		} catch (e) {
+			erroEscrita = String(e).replace(/^Error:\s*/, '');
+			registrar(`prévia recusada: ${erroEscrita}`, 'erro');
+		}
+	}
+
 	async function confirmarEscrita() {
 		if (!ponte || !previa) return;
 		try {
@@ -237,6 +305,8 @@
 			registrar(`${confirmacao.operacao}: ${confirmacao.mensagem}`, confirmacao.ok ? 'ok' : 'erro');
 			previa = null;
 			editandoDesc = false;
+			mostrandoAutorizar = false;
+			formAut = { sn: '', modo: 'sn', perfil: '' };
 			await carregarAuditoria();
 		} catch (e) {
 			erroEscrita = String(e).replace(/^Error:\s*/, '');
@@ -383,6 +453,39 @@
 		</aside>
 
 		<main class="conteudo">
+			<!--
+				Diálogo de escrita em um só lugar: a mesma trava (prévia → token → confirmação) serve
+				para autorizar na PON, desautorizar/reiniciar/renomear na ONU. Duplicar o bloco faria
+				as duas telas divergirem na primeira mudança.
+			-->
+			{#snippet dialogoEscrita()}
+				{#if erroEscrita}
+					<p class="erro-linha" role="alert">{erroEscrita}</p>
+				{/if}
+
+				{#if previa}
+					<div class="dialogo" role="dialog" aria-label="Confirmação de escrita">
+						<p class="resumo-acao">{previa.resumo}</p>
+						<p class="meta">
+							prévia {previa.token_curto} · vale {previa.validade_s}s · nada foi enviado ao NE ainda
+						</p>
+						<div class="acoes">
+							<button class="perigo" onclick={confirmarEscrita}>confirmar</button>
+							<button onclick={() => (previa = null)}>cancelar</button>
+						</div>
+					</div>
+				{/if}
+
+				{#if confirmacao}
+					<section class="resultado-escrita" class:falhou={!confirmacao.ok}>
+						<strong>{confirmacao.ok ? 'executado' : 'não executado'}</strong>
+						<span>{confirmacao.mensagem}</span>
+						{#if confirmacao.id_operacao}<span class="meta">id {confirmacao.id_operacao}</span>{/if}
+						{#if confirmacao.aviso_auditoria}<span class="meta">{confirmacao.aviso_auditoria}</span>{/if}
+					</section>
+				{/if}
+			{/snippet}
+
 			{#if busca || erroBusca}
 				<section class="busca-caixa">
 					<header class="linha">
@@ -415,7 +518,42 @@
 			{/if}
 
 			{#if area === 'inventario'}
-				{#if ponSel && !onuSel}
+				{#if oltSel && !ponSel && !onuSel}
+					<section class="detalhe">
+						<header class="cabecalho">
+							<h1>{oltSel.modelo} · {oltSel.id}</h1>
+							<span class="badge">via C · E</span>
+						</header>
+						{#if oltDetalhe}
+							<dl class="campos">
+								<div><dt>vendor</dt><dd>{oltDetalhe.vendor}</dd></div>
+								<div><dt>serial</dt><dd class="mono">{oltDetalhe.serial || 'não informado pelo NE'}</dd></div>
+								<div><dt>IP</dt><dd class="mono">{oltDetalhe.ip}</dd></div>
+								<div><dt>software</dt><dd>{oltDetalhe.sw_version}</dd></div>
+								<div><dt>slots</dt><dd>{oltDetalhe.slots}</dd></div>
+								<div><dt>uptime</dt><dd>{oltDetalhe.uptime_dias} dias ({oltDetalhe.uptime_horas} h)</dd></div>
+								<div>
+									<dt>temperatura</dt>
+									<dd>
+										{oltDetalhe.temperatura_c === null ? 'não informada pelo NE' : `${oltDetalhe.temperatura_c} °C`}
+									</dd>
+								</div>
+								<div>
+									<dt>PONs</dt>
+									<dd>{oltDetalhe.pons === null ? 'não foi possível contar agora' : oltDetalhe.pons}</dd>
+								</div>
+							</dl>
+							<p class="nota">
+								serial vem de <code>get_olt_info</code>; a contagem de PONs vem de
+								<code>list_pon_ports</code>. São duas operações canônicas distintas — a tela não
+								esconde uma falha de uma atrás do número da outra.
+							</p>
+						{:else}
+							<p class="vazio">lendo o detalhe da OLT…</p>
+						{/if}
+						<p class="nota">clique numa PON, na árvore à esquerda, para listar as ONUs.</p>
+					</section>
+				{:else if ponSel && !onuSel}
 					<header class="cabecalho">
 						<h1>PON {ponSel.rotulo} · {oltSel?.modelo ?? ponSel.olt}</h1>
 						<div class="controles">
@@ -427,8 +565,35 @@
 							</label>
 							<button onclick={analisar} disabled={analisando}>{analisando ? 'analisando…' : 'reanalisar'}</button>
 							<button onclick={exportarCsv} disabled={!massiva?.clusters.length}>exportar CSV</button>
+							<button onclick={() => (mostrandoAutorizar = !mostrandoAutorizar)}>＋ autorizar ONU</button>
 						</div>
 					</header>
+
+					{#if mostrandoAutorizar}
+						<section class="dialogo" aria-label="Autorizar ONU">
+							<header class="linha">
+								<strong>autorizar ONU na PON {ponSel.rotulo}</strong>
+								<span class="meta">authorize_onu · nada é enviado antes da prévia e da confirmação</span>
+							</header>
+							<div class="linha">
+								<input bind:value={formAut.sn} placeholder="SN (ex.: 48575443A1B2C3D1)" class="mono" />
+								<label>
+									modo
+									<select bind:value={formAut.modo}>
+										<option value="sn">SN</option>
+										<option value="loid">LOID</option>
+										<option value="password">senha</option>
+										<option value="none">nenhum</option>
+									</select>
+								</label>
+								<input bind:value={formAut.perfil} placeholder="perfil (opcional)" />
+								<button onclick={pedirPreviaAutorizacao} disabled={!formAut.sn.trim()}>gerar prévia</button>
+								<button class="link" onclick={() => (mostrandoAutorizar = false)}>cancelar</button>
+							</div>
+						</section>
+					{/if}
+
+					{@render dialogoEscrita()}
 
 					{#if massiva}
 						<div class="resumo">
@@ -490,6 +655,7 @@
 
 						<div class="acoes">
 							<button onclick={() => pedirPrevia('reset')}>reiniciar ONU</button>
+							<button class="perigo" onclick={pedirPreviaDesautorizacao}>desautorizar ONU</button>
 							<button
 								onclick={() => {
 									editandoDesc = !editandoDesc;
@@ -504,31 +670,7 @@
 							{/if}
 						</div>
 
-						{#if erroEscrita}
-							<p class="erro-linha" role="alert">{erroEscrita}</p>
-						{/if}
-
-						{#if previa}
-							<section class="dialogo" role="dialog" aria-label="Confirmação de escrita">
-								<p class="resumo-acao">{previa.resumo}</p>
-								<p class="meta">
-									prévia {previa.token_curto} · vale {previa.validade_s}s · nada foi enviado ao NE ainda
-								</p>
-								<div class="acoes">
-									<button class="perigo" onclick={confirmarEscrita}>confirmar</button>
-									<button onclick={() => (previa = null)}>cancelar</button>
-								</div>
-							</section>
-						{/if}
-
-						{#if confirmacao}
-							<section class="resultado-escrita" class:falhou={!confirmacao.ok}>
-								<strong>{confirmacao.ok ? 'executado' : 'não executado'}</strong>
-								<span>{confirmacao.mensagem}</span>
-								{#if confirmacao.id_operacao}<span class="meta">id {confirmacao.id_operacao}</span>{/if}
-								{#if confirmacao.aviso_auditoria}<span class="meta">{confirmacao.aviso_auditoria}</span>{/if}
-							</section>
-						{/if}
+						{@render dialogoEscrita()}
 					</section>
 				{:else}
 					<p class="vazio">selecione uma PON na árvore para ver as quedas agrupadas.</p>
