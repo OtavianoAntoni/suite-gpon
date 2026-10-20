@@ -31,7 +31,9 @@ if not exist node_modules (
 )
 
 echo.
-echo  Abrindo http://localhost:1420 no navegador ^(vite abre sozinho quando estiver pronto^).
+echo  Abrindo http://localhost:1420 no navegador.
+echo  A PRIMEIRA execucao demora ~1 min (o vite otimiza dependencias); depois e rapido.
+echo  A janela fica parada nesse tempo: nao travou.
 echo  Para encerrar: Ctrl+C nesta janela.
 echo.
 call npm run dev -- --open

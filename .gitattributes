@@ -1,0 +1,6 @@
+# Fins de linha por tipo de arquivo — evita que um script de shell chegue com CRLF no Linux
+# (bash reclama de `\r` em shebang/`fi`) e que um .cmd chegue com LF no Windows.
+* text=auto
+*.sh  text eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
