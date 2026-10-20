@@ -9,7 +9,7 @@
 use gpon_transport::analise::{agrupar_massiva, JANELA_PADRAO_MIN};
 use gpon_transport::testing::bloquear;
 use gpon_transport::{
-    CanonicalCmd, CanonicalResult, CriterioBusca, OltId, OrdemOnu, Page, PonRef, SegmentoOnu,
+    CanonicalCmd, CanonicalResult, CriterioBusca, OltId, OnuId, OrdemOnu, Page, PonRef, SegmentoOnu,
     SourceId, Transport,
 };
 use mock_ne_huawei::{Fixture, ModeloNe};
@@ -130,8 +130,12 @@ pub struct OnuDto {
     pub vendor: String,
     /// `None` = o NE não informou distância (não é zero!).
     pub distancia_m: Option<u32>,
-    /// `None` = o NE não informou hora de registro/queda.
-    pub ultimo_registro: Option<String>,
+    /// `None` = o NE não informou a hora da **queda** (não é "agora"!).
+    pub ultima_queda: Option<String>,
+    /// `None` = o NE não informou a hora do **retorno** (ou a ONU não voltou).
+    pub ultimo_up: Option<String>,
+    /// `None` = o NE não informou o motivo ("LOS", "DyingGasp").
+    pub motivo_queda: Option<String>,
 }
 
 #[derive(Serialize, Debug, Clone)]
@@ -156,9 +160,16 @@ pub struct BuscaDto {
 
 #[derive(Serialize)]
 pub struct QuedaDto {
+    /// Id da ONU — é o que permite clicar na linha e abrir o cliente (§7.4).
+    pub id: String,
     pub sn: String,
     pub nome: String,
+    /// Hora da queda, como o NE mandou.
     pub quando: String,
+    /// Hora do retorno; `None` = não voltou ou o NE não informa.
+    pub ultimo_up: Option<String>,
+    /// Motivo no vocabulário do NE.
+    pub motivo: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -200,7 +211,9 @@ fn onu_dto(o: &gpon_transport::Onu) -> OnuDto {
         modelo_sw: o.modelo_sw.clone(),
         vendor: o.vendor.clone(),
         distancia_m: o.distancia_m,
-        ultimo_registro: o.ultimo_registro.clone(),
+        ultima_queda: o.ultima_queda.clone(),
+        ultimo_up: o.ultimo_up.clone(),
+        motivo_queda: o.motivo_queda.clone(),
     }
 }
 
@@ -215,12 +228,12 @@ fn onus_de(ne: &Ne, olt: &str, pon: Option<(u8, u8)>, filtro: Option<String>, li
     };
     match bloquear(ne.transporte.exec(cmd)).map_err(|e| e.to_string())? {
         CanonicalResult::Onus { itens, total } => {
-            let sem_hora = itens.iter().filter(|o| o.ultimo_registro.is_none()).count();
+            let sem_hora = itens.iter().filter(|o| o.ultima_queda.is_none()).count();
             Ok(PaginaOnusDto {
                 total,
                 itens: itens.iter().map(onu_dto).collect(),
                 aviso: (sem_hora > 0 && !itens.is_empty()).then(|| {
-                    format!("{sem_hora} ONU(s) sem hora de registro informada pelo NE")
+                    format!("{sem_hora} ONU(s) sem hora de queda informada pelo NE")
                 }),
                 modulo: "C".into(),
             })
@@ -350,6 +363,20 @@ pub fn detalhe_olt_de(app: &Aplicacao, fonte: &str, olt: &str) -> Result<OltDeta
     Ok(OltDetalheDto { pons, ..detalhe })
 }
 
+/// `get_onu` — uma ONU pelo id, sem depender da página que a tela tinha em mãos.
+///
+/// Existe porque a tabela de quedas mostra SN/ALIAS de ONUs que podem estar fora da página
+/// carregada: buscar por id é o caminho canônico (§1.3), não um truque de UI.
+pub fn onu_de(app: &Aplicacao, fonte: &str, onu: &str) -> Result<OnuDto, String> {
+    let ne = app.ne(fonte)?;
+    match bloquear(ne.transporte.exec(CanonicalCmd::GetOnu { onu: OnuId::novo(onu) }))
+        .map_err(|e| e.to_string())?
+    {
+        CanonicalResult::Onu(o) => Ok(onu_dto(&o)),
+        outro => Err(format!("get_onu devolveu {}", outro.tipo())),
+    }
+}
+
 pub fn onus_da_pon(
     app: &Aplicacao,
     fonte: &str,
@@ -420,7 +447,7 @@ pub fn massiva_de(
         filtro: None,
         segmento: SegmentoOnu::Todas,
         page: Page { offset: 0, limit: 4096 },
-        ordenar_por: OrdemOnu::UltimoRegistro,
+        ordenar_por: OrdemOnu::UltimaQueda,
     };
     // As ONUs vêm do transporte (estado real inclusive); nada é reconstruído à mão.
     let onus = match bloquear(ne.transporte.exec(cmd)).map_err(|e| e.to_string())? {
@@ -447,9 +474,12 @@ pub fn massiva_de(
                     .quedas
                     .iter()
                     .map(|q| QuedaDto {
+                        id: q.id.clone(),
                         sn: q.sn.clone(),
                         nome: q.nome.clone(),
                         quando: q.quando_texto.clone(),
+                        ultimo_up: q.ultimo_up.clone(),
+                        motivo: q.motivo.clone(),
                     })
                     .collect(),
             })
@@ -731,6 +761,15 @@ pub fn listar_pons(
 }
 
 #[tauri::command]
+pub fn detalhe_onu(
+    app: tauri::State<'_, Aplicacao>,
+    fonte: String,
+    onu: String,
+) -> Result<OnuDto, String> {
+    onu_de(&*app, &fonte, &onu)
+}
+
+#[tauri::command]
 pub fn detalhe_olt(
     app: tauri::State<'_, Aplicacao>,
     fonte: String,
@@ -754,7 +793,7 @@ pub fn listar_onus(
         _ => None,
     };
     let ordem = match ordem.as_deref() {
-        Some("ultimo_registro") => OrdemOnu::UltimoRegistro,
+        Some("ultima_queda") => OrdemOnu::UltimaQueda,
         _ => OrdemOnu::Sn,
     };
     onus_da_pon(&*app, &fonte, &olt, pon, filtro, ordem)

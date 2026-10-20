@@ -47,7 +47,14 @@ const PONS: Pon[] = [
 	{ olt: OLT.id, slot: 0, porta: 2, rotulo: '0/2', tecnologia: 'GPON', admin_up: true, split_ratio: 128, onus: 0 }
 ];
 
-function onu(i: number, nome: string, estado: string, ultimo: string | null): Onu {
+function onu(
+	i: number,
+	nome: string,
+	estado: string,
+	queda: string | null,
+	up: string | null,
+	motivo: string | null
+): Onu {
 	return {
 		id: `onu-${i}`,
 		olt: OLT.id,
@@ -61,15 +68,17 @@ function onu(i: number, nome: string, estado: string, ultimo: string | null): On
 		modelo_sw: 'V5R019C10S270',
 		vendor: 'Huawei',
 		distancia_m: 1200 + i * 10,
-		ultimo_registro: ultimo
+		ultima_queda: queda,
+		ultimo_up: up,
+		motivo_queda: motivo
 	};
 }
 
 const ONUS: Onu[] = [
-	onu(1, 'cliente-0001', 'online', '2026-10-17T14:02:10-03:00'),
-	onu(2, 'cliente-0002', 'offline', '2026-10-17T14:04:00-03:00'),
-	onu(3, 'cliente-0003', 'offline', '2026-10-17T14:06:30-03:00'),
-	onu(4, 'cliente-0004', 'online', '2026-10-17T09:15:00-03:00')
+	onu(1, 'cliente-0001', 'online', '2026-10-17T14:02:10-03:00', '2026-10-17T14:06:40-03:00', 'LOS'),
+	onu(2, 'cliente-0002', 'offline', '2026-10-17T14:04:00-03:00', null, 'LOS'),
+	onu(3, 'cliente-0003', 'offline', '2026-10-17T14:06:30-03:00', null, 'DyingGasp'),
+	onu(4, 'cliente-0004', 'online', '2026-10-17T09:15:00-03:00', '2026-10-17T09:16:10-03:00', 'LOS')
 ];
 
 const JANELA_S = (min: number) => min * 60;
@@ -77,24 +86,32 @@ const seg = (texto: string) => Math.floor(new Date(texto).getTime() / 1000);
 
 function clusters(min: number): Cluster[] {
 	const grupos: Cluster[] = [];
-	const comHora = ONUS.filter((o) => o.ultimo_registro).sort(
-		(a, b) => seg(b.ultimo_registro!) - seg(a.ultimo_registro!)
+	// Agrupa pela QUEDA, nunca pelo retorno: quem voltou junto não caiu junto.
+	const comHora = ONUS.filter((o) => o.ultima_queda).sort(
+		(a, b) => seg(b.ultima_queda!) - seg(a.ultima_queda!)
 	);
 	let atual: Onu[] = [];
 	const fechar = () => {
 		if (!atual.length) return;
 		grupos.push({
-			inicio: atual[atual.length - 1].ultimo_registro!,
-			fim: atual[0].ultimo_registro!,
+			inicio: atual[atual.length - 1].ultima_queda!,
+			fim: atual[0].ultima_queda!,
 			tamanho: atual.length,
-			duracao_min: Math.round((seg(atual[0].ultimo_registro!) - seg(atual[atual.length - 1].ultimo_registro!)) / 60),
-			quedas: atual.map((o) => ({ sn: o.sn, nome: o.nome, quando: o.ultimo_registro! }))
+			duracao_min: Math.round((seg(atual[0].ultima_queda!) - seg(atual[atual.length - 1].ultima_queda!)) / 60),
+			quedas: atual.map((o) => ({
+				id: o.id,
+				sn: o.sn,
+				nome: o.nome,
+				quando: o.ultima_queda!,
+				ultimo_up: o.ultimo_up,
+				motivo: o.motivo_queda
+			}))
 		});
 		atual = [];
 	};
 	for (const o of comHora) {
 		const anterior = atual.length ? atual[atual.length - 1] : null;
-		if (anterior && seg(anterior.ultimo_registro!) - seg(o.ultimo_registro!) <= JANELA_S(min)) {
+		if (anterior && seg(anterior.ultima_queda!) - seg(o.ultima_queda!) <= JANELA_S(min)) {
 			atual.push(o);
 		} else {
 			fechar();
@@ -132,9 +149,14 @@ export const ponteDemo: Ponte = {
 	async pons() {
 		return PONS;
 	},
+	async detalheOnu(_fonte, id): Promise<Onu> {
+		const achada = ONUS.find((o) => o.id === id);
+		if (!achada) throw new Error(`get_onu: ONU ${id} não existe na demonstração`);
+		return achada;
+	},
 	async onus(_fonte, _olt, pon): Promise<PaginaOnus> {
 		const itens = pon ? ONUS.filter((o) => o.slot === pon.slot && o.porta === pon.porta) : ONUS;
-		const sem = itens.filter((o) => !o.ultimo_registro).length;
+		const sem = itens.filter((o) => !o.ultima_queda).length;
 		return {
 			total: itens.length,
 			itens,

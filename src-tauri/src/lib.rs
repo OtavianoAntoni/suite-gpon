@@ -108,6 +108,7 @@ pub fn run() {
             ne::listar_olts,
             ne::listar_pons,
             ne::detalhe_olt,
+            ne::detalhe_onu,
             ne::listar_onus,
             ne::buscar_onu,
             ne::massiva,

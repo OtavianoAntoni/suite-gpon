@@ -166,21 +166,21 @@ impl CriterioBusca {
 
 /// Ordem da listagem de ONUs.
 ///
-/// `UltimoRegistro` existe por causa do caso de uso âncora (§7.4): identificar possível massiva
-/// é olhar a PON **ordenada pela hora da queda**, não pelo SN.
+/// `UltimaQueda` existe por causa do caso de uso âncora (§7.4): identificar possível massiva
+/// é olhar a PON **ordenada pela hora da queda**, não pelo SN — e não pela hora do retorno.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OrdemOnu {
     #[default]
     Sn,
-    /// Mais recente primeiro; ONU sem registro vai para o fim (ver `testing.rs`).
-    UltimoRegistro,
+    /// Mais recente primeiro; ONU sem hora de queda vai para o fim (ver `testing.rs`).
+    UltimaQueda,
 }
 
 impl OrdemOnu {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Sn => "sn",
-            Self::UltimoRegistro => "ultimo_registro",
+            Self::UltimaQueda => "ultima_queda",
         }
     }
 }

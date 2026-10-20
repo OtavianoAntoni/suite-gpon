@@ -122,7 +122,9 @@ impl InMemoryTransport {
             descricao: "portaria".into(),
             estado: OnuEstado::Online,
             distancia_m: Some(1240),
-            ultimo_registro: Some("2026-10-16T21:40:00-03:00".into()),
+            ultima_queda: Some("2026-10-16T21:40:00-03:00".into()),
+            ultimo_up: Some("2026-10-16T21:44:00-03:00".into()),
+            motivo_queda: Some("LOS".into()),
         });
         t.onus.push(Onu {
             id: OnuId::novo("onu-2"),
@@ -137,7 +139,9 @@ impl InMemoryTransport {
             descricao: String::new(),
             estado: OnuEstado::Los,
             distancia_m: None,
-            ultimo_registro: None,
+            ultima_queda: None,
+            ultimo_up: None,
+            motivo_queda: None,
         });
         t.onus.push(Onu {
             id: OnuId::novo("onu-3"),
@@ -152,7 +156,9 @@ impl InMemoryTransport {
             descricao: String::new(),
             estado: OnuEstado::Offline,
             distancia_m: Some(2310),
-            ultimo_registro: Some("2026-10-15T09:12:00-03:00".into()),
+            ultima_queda: Some("2026-10-15T09:12:00-03:00".into()),
+            ultimo_up: None,
+            motivo_queda: Some("DyingGasp".into()),
         });
 
         t.perfis.push(Profile { nome: "line-1G".into(), kind: ProfileKind::Line, versao: "1".into() });
@@ -457,8 +463,8 @@ impl InMemoryTransport {
 fn ordenar(itens: &mut [Onu], ordem: OrdemOnu) {
     match ordem {
         OrdemOnu::Sn => itens.sort_by(|a, b| a.sn.cmp(&b.sn)),
-        OrdemOnu::UltimoRegistro => itens.sort_by(|a, b| {
-            match (&a.ultimo_registro, &b.ultimo_registro) {
+        OrdemOnu::UltimaQueda => itens.sort_by(|a, b| {
+            match (&a.ultima_queda, &b.ultima_queda) {
                 // mais recente primeiro (ISO-8601 com o mesmo offset ordena lexicograficamente)
                 (Some(x), Some(y)) => y.cmp(x),
                 (Some(_), None) => std::cmp::Ordering::Less,

@@ -34,7 +34,9 @@ fn onu(id: &str, sn: &str, nome: &str, desc: &str, ultimo: Option<&str>) -> Onu 
         descricao: desc.to_string(),
         estado: OnuEstado::Online,
         distancia_m: None,
-        ultimo_registro: ultimo.map(str::to_string),
+        ultima_queda: ultimo.map(str::to_string),
+        ultimo_up: None,
+        motivo_queda: None,
     }
 }
 
@@ -144,7 +146,7 @@ fn busca_por_vlan_avisa_que_depende_da_fase_2() {
 // ---------- ordenação (caso de uso âncora — §7.4) ----------
 
 #[test]
-fn ordem_por_ultimo_registro_traz_o_mais_recente_primeiro_e_sem_registro_no_fim() {
+fn ordem_por_ultima_queda_traz_o_mais_recente_primeiro_e_sem_queda_no_fim() {
     let t = com_onus(vec![
         onu("onu-antiga", "SN-ANTIGA", "a", "", Some("2026-10-17T10:00:00-03:00")),
         onu("onu-sem-registro", "SN-SEM-REG", "b", "", None),
@@ -157,7 +159,7 @@ fn ordem_por_ultimo_registro_traz_o_mais_recente_primeiro_e_sem_registro_no_fim(
         filtro: None,
         segmento: SegmentoOnu::Todas,
         page: Page::primeira(10),
-        ordenar_por: OrdemOnu::UltimoRegistro,
+        ordenar_por: OrdemOnu::UltimaQueda,
     }))
     .expect("list_onus ordenado");
 
@@ -227,7 +229,7 @@ fn mil_e_vinte_e_quatro_onus_pagina_conta_e_ordena() {
     // ordenação por hora de queda em volume: o mais recente (i=1023 → 17:03) vem primeiro
     let ordenado = bloquear(t.exec(CanonicalCmd::ListOnus {
         olt: olt(), pon: None, filtro: None, segmento: SegmentoOnu::Todas,
-        page: Page { offset: 0, limit: 5 }, ordenar_por: OrdemOnu::UltimoRegistro,
+        page: Page { offset: 0, limit: 5 }, ordenar_por: OrdemOnu::UltimaQueda,
     })).expect("ordenado por queda");
     match ordenado {
         CanonicalResult::Onus { itens, total } => {

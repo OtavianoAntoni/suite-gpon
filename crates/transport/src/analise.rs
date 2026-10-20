@@ -4,8 +4,10 @@
 //! da mesma PON caíram na mesma hora. Aqui isso vira uma função pura sobre a lista que já existe —
 //! **nenhuma operação nova no NE** e nenhuma dependência externa (o crate é std-only de propósito).
 //!
-//! Limite honesto: se o NE não devolver `ultimo_registro` (em C a evidência é `P`), a lista de
-//! clusters volta **vazia** e o chamador tem de dizer isso na tela — nunca inventar horário.
+//! Limite honesto: se o NE não devolver a hora da queda (`ultima_queda` — em C a evidência é `P`),
+//! a lista de clusters volta **vazia** e o chamador tem de dizer isso na tela — nunca inventar
+//! horário. A hora do **retorno** (`ultimo_up`) não é usada para agrupar: quem voltou junto não
+//! necessariamente caiu junto, e agrupar por ela produziria cluster falso.
 
 use crate::result::Onu;
 
@@ -15,12 +17,19 @@ pub const JANELA_PADRAO_MIN: i64 = 5;
 /// Uma ONU que caiu, com o instante já convertido.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Queda {
+    /// Id da ONU: é o que permite a tela abrir o cliente a partir da linha do cluster
+    /// (o SN identifica, mas o id é a chave que o contrato usa em `get_onu`).
+    pub id: String,
     pub sn: String,
     pub nome: String,
-    /// Instante em segundos desde a época (UTC).
+    /// Instante da **queda** em segundos desde a época (UTC).
     pub quando: i64,
     /// O texto original do NE, preservado para a tela (não reformatamos o que veio de lá).
     pub quando_texto: String,
+    /// Hora do retorno, como veio do NE (eixo "voltou?" da mesma linha da tabela).
+    pub ultimo_up: Option<String>,
+    /// Motivo da queda no vocabulário do NE ("LOS", "DyingGasp").
+    pub motivo: Option<String>,
 }
 
 /// Grupo de quedas próximas no tempo — o "suspeita de massiva".
@@ -105,7 +114,7 @@ fn dias_desde_epoca(ano: i64, mes: i64, dia: i64) -> i64 {
 /// Agrupa as quedas em janelas de `janela_min` minutos.
 ///
 /// Regras (todas testadas):
-/// - ONU **sem** `ultimo_registro` ou com texto ilegível é ignorada — não vira "queda agora";
+/// - ONU **sem** `ultima_queda` ou com texto ilegível é ignorada — não vira "queda agora";
 /// - ordena da mais recente para a mais antiga;
 /// - duas quedas consecutivas ficam no mesmo grupo quando a distância entre elas é **≤ janela**
 ///   (inclusive: 5 min exatos é a mesma janela, não duas);
@@ -117,13 +126,16 @@ pub fn agrupar_massiva(onus: &[Onu], janela_min: i64) -> Vec<Cluster> {
     let mut quedas: Vec<Queda> = onus
         .iter()
         .filter_map(|o| {
-            let texto = o.ultimo_registro.as_deref()?;
+            let texto = o.ultima_queda.as_deref()?;
             let quando = para_epoch(texto)?;
             Some(Queda {
+                id: o.id.as_str().to_string(),
                 sn: o.sn.clone(),
                 nome: o.nome.clone(),
                 quando,
                 quando_texto: texto.to_string(),
+                ultimo_up: o.ultimo_up.clone(),
+                motivo: o.motivo_queda.clone(),
             })
         })
         .collect();
@@ -180,7 +192,9 @@ mod testes {
             descricao: String::new(),
             estado: OnuEstado::Offline,
             distancia_m: None,
-            ultimo_registro: ultimo.map(str::to_string),
+            ultima_queda: ultimo.map(str::to_string),
+            ultimo_up: None,
+            motivo_queda: None,
         }
     }
 
@@ -268,6 +282,41 @@ mod testes {
         let g = agrupar_massiva(&onus, 5);
         assert_eq!(g.len(), 1);
         assert_eq!(g[0].quedas.iter().map(|q| q.sn.as_str()).collect::<Vec<_>>(), vec!["A", "Z"]);
+    }
+
+    #[test]
+    fn agrupa_pela_queda_e_nao_pelo_retorno() {
+        // A caiu às 09:00 e voltou às 14:59; B caiu às 14:58 e não voltou.
+        // Se a análise usasse o retorno, A entraria no cluster de 14:5x — cluster falso.
+        let mut a = onu("A", Some("2026-10-17T09:00:00-03:00"));
+        a.ultimo_up = Some("2026-10-17T14:59:00-03:00".to_string());
+        let b = onu("B", Some("2026-10-17T14:58:00-03:00"));
+
+        let grupos = agrupar_massiva(&[a, b], JANELA_PADRAO_MIN);
+        assert_eq!(grupos.len(), 2, "quedas a 6h de distância não são a mesma janela");
+        assert_eq!(grupos[0].quedas[0].sn, "B", "a queda mais recente primeiro");
+        assert_eq!(grupos[1].quedas[0].sn, "A");
+        assert_eq!(
+            grupos[1].quedas[0].ultimo_up.as_deref(),
+            Some("2026-10-17T14:59:00-03:00"),
+            "o retorno acompanha a linha sem influenciar o agrupamento"
+        );
+    }
+
+    #[test]
+    fn motivo_e_id_atravessam_para_a_linha_da_tabela() {
+        let mut a = onu("A", Some("2026-10-17T14:02:00-03:00"));
+        a.motivo_queda = Some("DyingGasp".into());
+        let b = onu("B", Some("2026-10-17T14:03:00-03:00"));
+
+        let grupos = agrupar_massiva(&[a, b], JANELA_PADRAO_MIN);
+        assert_eq!(grupos.len(), 1);
+        let com_motivo = grupos[0].quedas.iter().find(|q| q.sn == "A").expect("A no cluster");
+        assert_eq!(com_motivo.motivo.as_deref(), Some("DyingGasp"));
+        // O id é o que a tela usa para abrir o cliente ao clicar na linha.
+        assert_eq!(com_motivo.id, "id-A");
+        let sem_motivo = grupos[0].quedas.iter().find(|q| q.sn == "B").expect("B no cluster");
+        assert_eq!(sem_motivo.motivo, None, "sem motivo informado não vira texto inventado");
     }
 
     #[test]

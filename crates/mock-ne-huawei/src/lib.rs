@@ -310,7 +310,11 @@ impl Fixture {
                         descricao: campo(&c, "desc").unwrap_or("").to_string(),
                         estado: estado(campo(&c, "estado").unwrap_or("")).map_err(erro)?,
                         distancia_m: num(&c, "dist", &nome_arq, n)?,
-                        ultimo_registro: campo(&c, "ultimo").filter(|s| !s.is_empty()).map(str::to_string),
+                        // Três fatos distintos do NE: queda, retorno e motivo. Vazio = "não informa",
+                        // nunca "agora" (a análise depende disso para não inventar massiva).
+                        ultima_queda: campo(&c, "queda").filter(|s| !s.is_empty()).map(str::to_string),
+                        ultimo_up: campo(&c, "up").filter(|s| !s.is_empty()).map(str::to_string),
+                        motivo_queda: campo(&c, "motivo").filter(|s| !s.is_empty()).map(str::to_string),
                     });
                 }
 

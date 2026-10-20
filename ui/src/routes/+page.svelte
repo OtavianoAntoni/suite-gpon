@@ -180,6 +180,20 @@
 		area = 'inventario';
 	}
 
+	/**
+	 * Abre o cliente a partir de uma linha de queda. Usa `get_onu` (operação canônica) em vez de
+	 * procurar na lista carregada: a ONU pode estar fora da página que a tela tem em mãos.
+	 */
+	async function verOnuPorId(id: string) {
+		if (!ponte || !fonteSel) return;
+		area = 'inventario';
+		try {
+			onuSel = await ponte.detalheOnu(fonteSel.id, id);
+		} catch (e) {
+			registrar(`abrir ONU ${id}: ${e}`, 'erro');
+		}
+	}
+
 	async function procurar() {
 		if (!ponte || !fonteSel) return;
 		erroBusca = null;
@@ -508,7 +522,7 @@
 										<td>{u.nome}</td>
 										<td>{u.slot}/{u.porta}</td>
 										<td>{u.estado}</td>
-										<td>{horaCurta(u.ultimo_registro)}</td>
+										<td>{horaCurta(u.ultima_queda)}</td>
 									</tr>
 								{/each}
 							</tbody>
@@ -622,10 +636,32 @@
 									{/if}
 								</header>
 								<table class="tabela">
-									<thead><tr><th>SN</th><th>cliente</th><th>quando</th></tr></thead>
+									<thead>
+										<tr>
+											<th>SN</th>
+											<th>ALIAS</th>
+											<th>LAST DOWN TIME</th>
+											<th>LAST UP TIME</th>
+											<th>MOTIVO QUEDA</th>
+										</tr>
+									</thead>
 									<tbody>
-										{#each c.quedas as q (q.sn)}
-											<tr><td class="mono">{q.sn}</td><td>{q.nome}</td><td>{horaCurta(q.quando)}</td></tr>
+										{#each c.quedas as q (q.id)}
+											<tr>
+												<td>
+													<button class="link mono" onclick={() => verOnuPorId(q.id)} title="abrir o cliente">
+														{q.sn}
+													</button>
+												</td>
+												<td>
+													<button class="link" onclick={() => verOnuPorId(q.id)} title="abrir o cliente">
+														{q.nome || '—'}
+													</button>
+												</td>
+												<td>{horaCurta(q.quando)}</td>
+												<td>{q.ultimo_up ? horaCurta(q.ultimo_up) : 'não informado'}</td>
+												<td>{q.motivo ?? 'não informado'}</td>
+											</tr>
 										{/each}
 									</tbody>
 								</table>
@@ -642,13 +678,24 @@
 							<button class="link" onclick={() => (onuSel = null)}>← voltar para a PON</button>
 						</header>
 						<dl class="campos">
+							<div><dt>Alias</dt><dd>{onuSel.nome || '—'}</dd></div>
 							<div><dt>SN</dt><dd class="mono">{onuSel.sn}</dd></div>
+							<div><dt>Running Status</dt><dd>{onuSel.estado}</dd></div>
+							<div><dt>Terminal Type</dt><dd>{onuSel.modelo_hw}</dd></div>
+							<div><dt>Software Version</dt><dd>{onuSel.modelo_sw}</dd></div>
+							<div><dt>Ranging Value (m)</dt><dd>{onuSel.distancia_m ?? 'não informado'}</dd></div>
 							<div><dt>PON</dt><dd>{onuSel.slot}/{onuSel.porta}</dd></div>
-							<div><dt>estado</dt><dd>{onuSel.estado}</dd></div>
-							<div><dt>modelo</dt><dd>{onuSel.modelo_hw} · {onuSel.modelo_sw}</dd></div>
-							<div><dt>distância</dt><dd>{onuSel.distancia_m ?? 'não informada'}</dd></div>
-							<div><dt>último registro</dt><dd>{onuSel.ultimo_registro ?? 'não informado'}</dd></div>
+							<div><dt>descrição</dt><dd>{onuSel.descricao || '—'}</dd></div>
+							<div><dt>Last Down Time</dt><dd>{onuSel.ultima_queda ?? 'não informado'}</dd></div>
+							<div><dt>Last Up Time</dt><dd>{onuSel.ultimo_up ?? 'não informado'}</dd></div>
+							<div><dt>Motivo da queda</dt><dd>{onuSel.motivo_queda ?? 'não informado'}</dd></div>
 						</dl>
+						<p class="nota">
+							<b>Service Profile</b>, <b>Line Profile</b>, <b>ONU Service Level Profile</b>,
+							<b>Operation Status</b> e <b>Number of Learned MAC Addresses</b> não fazem parte do
+							contrato da Fase 1 — dependem de operação de Fase 2 (perfis aplicados na ONU e tabela
+							MAC). A tela não inventa esses campos.
+						</p>
 						<p class="nota">
 							nível óptico não está na Fase 1: é o primeiro item da Fase 2 (em C a evidência é <code>P</code>).
 						</p>

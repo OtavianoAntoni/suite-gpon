@@ -122,7 +122,12 @@ export type Onu = {
 	modelo_sw: string;
 	vendor: string;
 	distancia_m: number | null;
-	ultimo_registro: string | null;
+	/** Hora da queda ("last down time"). `null` = o NE não informa. */
+	ultima_queda: string | null;
+	/** Hora do retorno ("last up time"). `null` = não voltou ou não informa. */
+	ultimo_up: string | null;
+	/** Motivo no vocabulário do NE ("LOS", "DyingGasp"). */
+	motivo_queda: string | null;
 };
 
 export type PaginaOnus = {
@@ -140,7 +145,15 @@ export type Busca = {
 	modulo: string;
 };
 
-export type Queda = { sn: string; nome: string; quando: string };
+export type Queda = {
+	/** Id da ONU: é o que a tela usa para abrir o cliente ao clicar em SN/ALIAS. */
+	id: string;
+	sn: string;
+	nome: string;
+	quando: string;
+	ultimo_up: string | null;
+	motivo: string | null;
+};
 
 export type Cluster = {
 	inicio: string;
@@ -216,6 +229,8 @@ export type Ponte = {
 	fontes(): Promise<Fonte[]>;
 	olts(fonte: string): Promise<Olt[]>;
 	detalheOlt(fonte: string, olt: string): Promise<OltDetalhe>;
+	/** `get_onu`: a ONU pelo id, mesmo quando ela não está na página carregada. */
+	detalheOnu(fonte: string, onu: string): Promise<Onu>;
 	pons(fonte: string, olt: string): Promise<Pon[]>;
 	onus(fonte: string, olt: string, pon?: { slot: number; porta: number }, ordem?: string): Promise<PaginaOnus>;
 	buscar(fonte: string, criterio: string, valor: string): Promise<Busca>;
@@ -234,6 +249,7 @@ export const ponte: Ponte = {
 	fontes: () => real<Fonte[]>('fontes', {}),
 	olts: (fonte) => real<Olt[]>('listar_olts', { fonte }),
 	detalheOlt: (fonte, olt) => real<OltDetalhe>('detalhe_olt', { fonte, olt }),
+	detalheOnu: (fonte, onu) => real<Onu>('detalhe_onu', { fonte, onu }),
 	pons: (fonte, olt) => real<Pon[]>('listar_pons', { fonte, olt }),
 	onus: (fonte, olt, pon, ordem = 'sn') =>
 		real<PaginaOnus>('listar_onus', {

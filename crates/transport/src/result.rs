@@ -95,7 +95,18 @@ pub struct Onu {
     pub descricao: String,
     pub estado: OnuEstado,
     pub distancia_m: Option<u32>,
-    pub ultimo_registro: Option<String>,
+    /// Hora da **queda** — "last down time" no NE. `None` = o NE não informa.
+    ///
+    /// Separado de `ultimo_up` porque são fatos diferentes: agrupar massiva pela hora de retorno
+    /// dá cluster errado (quem volta junto não necessariamente caiu junto).
+    pub ultima_queda: Option<String>,
+    /// Hora do **retorno** — "last up time" no NE. `None` = não informa ou nunca voltou.
+    pub ultimo_up: Option<String>,
+    /// **Motivo** da última queda, no vocabulário do NE ("LOS", "DyingGasp"). `None` = não informa.
+    ///
+    /// Texto cru, sem enum nosso: inventar um catálogo de causas seria afirmar o que o
+    /// equipamento não nos disse. A tela mostra o que veio; tradução, quando houver, é camada de UI.
+    pub motivo_queda: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
