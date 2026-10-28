@@ -8,7 +8,7 @@
 //! 2026-10-17). O servidor SSH/SNMP de verdade é Fase 2, contra OLT de laboratório.
 
 use gpon_transport::testing::bloquear;
-use gpon_transport::{CanonicalCmd, CanonicalResult, SourceId, Transport};
+use gpon_transport::{CanonicalCmd, CanonicalResult, Transport};
 use mock_ne_huawei::{Fixture, ModeloNe, PERFIS};
 
 fn main() {
@@ -67,7 +67,7 @@ fn main() {
     }
 
     // Verificação rápida: a fixture responde pelo contrato?
-    let fonte = SourceId::novo("lab-1");
+    let fonte = f.transporte.fontes[0].id.clone();
     let mut falhas = 0;
     for (rotulo, cmd) in [
         ("list_sources", CanonicalCmd::ListSources),

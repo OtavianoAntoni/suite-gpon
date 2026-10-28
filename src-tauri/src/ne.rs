@@ -53,6 +53,17 @@ impl Aplicacao {
                 transporte: f.transporte,
             });
         }
+        // Duas fixtures com a MESMA fonte fariam `ne(fonte)` devolver o NE errado, e a tela diria
+        // "a fonte X não serve a OLT Y" em vez de mostrar o dado. Dado embutido contraditório não
+        // pode passar calado: falha aqui, no start.
+        let mut vistas = std::collections::BTreeSet::new();
+        for ne in &nes {
+            assert!(
+                vistas.insert(ne.fonte.as_str().to_string()),
+                "duas fixtures declaram a fonte '{}': a busca por fonte devolveria o NE errado",
+                ne.fonte.as_str()
+            );
+        }
         Self {
             nes,
             cofre: Box::new(CofreDoSistema::default()),

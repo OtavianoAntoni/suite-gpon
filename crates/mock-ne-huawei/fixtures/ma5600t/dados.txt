@@ -3,10 +3,13 @@
 # Mesmo formato do perfil MA5800 (ver fixtures/ma5800/dados.txt para a legenda dos campos).
 # O que muda entre famílias: números do equipamento, perfis disponíveis e o catálogo MML —
 # NÃO o transporte nem o contrato canônico (§0.2, P4).
+#
+# Fonte PRÓPRIA (lab-2), de propósito: as duas fixtures vivem no MESMO app, e a fonte é a chave
+# que o app usa para achar o NE — duas fontes com o mesmo id fariam a chamada cair no NE errado.
 
-fonte|id=lab-1|rotulo=Laboratório MA5600T|host=10.0.0.10|protocolo=ssh+mml|credencial_ref=cofre://lab-1
+fonte|id=lab-2|rotulo=Laboratório MA5600T|host=10.0.0.20|protocolo=ssh+mml|credencial_ref=cofre://lab-2
 
-olt|id=olt-ma5600t-1|fonte=lab-1|vendor=Huawei|modelo=MA5600T|serial=48575443E5F6A7B8|ip=10.0.0.12|sw=V800R018C10|uptime=8640000|slots=16|temp=44
+olt|id=olt-ma5600t-1|fonte=lab-2|vendor=Huawei|modelo=MA5600T|serial=48575443E5F6A7B8|ip=10.0.0.12|sw=V800R018C10|uptime=8640000|slots=16|temp=44
 
 pon|olt=olt-ma5600t-1|rack=1|subrack=1|slot=1|porta=1|tech=gpon|up=1|split=64|onus=3
 pon|olt=olt-ma5600t-1|rack=1|subrack=1|slot=1|porta=2|tech=epon|up=0|split=32|onus=0

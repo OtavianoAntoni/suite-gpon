@@ -45,8 +45,8 @@ fn expectativa(m: ModeloNe) -> Expectativa {
     }
 }
 
-fn fonte() -> SourceId {
-    SourceId::novo("lab-1")
+fn fonte(f: &Fixture) -> SourceId {
+    f.transporte.fontes[0].id.clone()
 }
 
 fn carregar(m: ModeloNe) -> Fixture {
@@ -68,7 +68,7 @@ fn verifica_op01_list_sources(f: &Fixture) {
     match r {
         CanonicalResult::Sources(v) => {
             assert_eq!(v.len(), 1);
-            assert_eq!(v[0].id.as_str(), "lab-1");
+            assert_eq!(v[0].id, f.transporte.fontes[0].id);
             // §9: no produto a credencial é REFERÊNCIA ao cofre, nunca o segredo.
             assert!(v[0].credencial_ref.starts_with("cofre://"), "credencial não é referência de cofre");
         }
@@ -77,7 +77,7 @@ fn verifica_op01_list_sources(f: &Fixture) {
 }
 
 fn verifica_op02_test_connectivity(f: &Fixture) {
-    let r = bloquear(f.transporte.exec(CanonicalCmd::TestConnectivity { source: fonte() }))
+    let r = bloquear(f.transporte.exec(CanonicalCmd::TestConnectivity { source: fonte(f) }))
         .expect("test_connectivity");
     match r {
         CanonicalResult::Connectivity(c) => {
@@ -89,7 +89,7 @@ fn verifica_op02_test_connectivity(f: &Fixture) {
 }
 
 fn verifica_op03_list_olts(f: &Fixture, e: &Expectativa) {
-    let r = bloquear(f.transporte.exec(CanonicalCmd::ListOlts { source: fonte() })).expect("list_olts");
+    let r = bloquear(f.transporte.exec(CanonicalCmd::ListOlts { source: fonte(f) })).expect("list_olts");
     match r {
         CanonicalResult::Olts(v) => {
             assert_eq!(v.len(), 1);
@@ -166,7 +166,7 @@ fn verifica_op06_list_onus(f: &Fixture, e: &Expectativa) {
 fn verifica_op07_find_onu_by_sn(f: &Fixture) {
     let sn = f.transporte.onus[0].sn.clone();
     let r = bloquear(f.transporte.exec(CanonicalCmd::BuscarOnu {
-        source: fonte(),
+        source: fonte(f),
         criterio: CriterioBusca::Sn,
         valor: sn.clone(),
     }))
@@ -199,7 +199,7 @@ fn verifica_op09_get_onu_auth_mode(f: &Fixture) {
 
 fn verifica_op10_list_profiles(f: &Fixture, e: &Expectativa) {
     let r = bloquear(f.transporte.exec(CanonicalCmd::ListProfiles {
-        source: fonte(),
+        source: fonte(f),
         kind: ProfileKind::Line,
     }))
     .expect("list_profiles");
@@ -219,7 +219,7 @@ fn verifica_op10_list_profiles(f: &Fixture, e: &Expectativa) {
 }
 
 fn verifica_op11_list_alarms(f: &Fixture, e: &Expectativa) {
-    let r = bloquear(f.transporte.exec(CanonicalCmd::ListAlarms { source: fonte(), filtro: None }))
+    let r = bloquear(f.transporte.exec(CanonicalCmd::ListAlarms { source: fonte(f), filtro: None }))
         .expect("list_alarms");
     match r {
         CanonicalResult::Alarms(v) => {
@@ -428,8 +428,8 @@ fn os_dois_perfis_devolvem_dados_diferentes_com_o_mesmo_codigo() {
     let a = carregar(ModeloNe::Ma5800);
     let b = carregar(ModeloNe::Ma5600t);
 
-    let olts_a = bloquear(a.transporte.exec(CanonicalCmd::ListOlts { source: fonte() })).unwrap();
-    let olts_b = bloquear(b.transporte.exec(CanonicalCmd::ListOlts { source: fonte() })).unwrap();
+    let olts_a = bloquear(a.transporte.exec(CanonicalCmd::ListOlts { source: fonte(&a) })).unwrap();
+    let olts_b = bloquear(b.transporte.exec(CanonicalCmd::ListOlts { source: fonte(&b) })).unwrap();
 
     let (CanonicalResult::Olts(va), CanonicalResult::Olts(vb)) = (olts_a, olts_b) else {
         panic!("list_olts devolveu tipo inesperado")
@@ -437,6 +437,53 @@ fn os_dois_perfis_devolvem_dados_diferentes_com_o_mesmo_codigo() {
     assert_ne!(va[0].modelo, vb[0].modelo, "mesma chamada, famílias diferentes");
     assert_ne!(va[0].ip, vb[0].ip);
     assert_ne!(va[0].sw_version, vb[0].sw_version);
+}
+
+// ---------- invariantes das fixtures EMBUTIDAS ----------
+
+/// As duas fixtures embutidas convivem no **mesmo** app. Se compartilharem a fonte, a busca por
+/// fonte devolve o NE errado e a tela responde "a fonte X não serve a OLT Y" — foi exatamente o
+/// que quebrou o CI (`as_duas_familias_respondem_o_detalhe`). Fonte e OLT têm de ser únicas
+/// entre perfis, e toda OLT tem de apontar para uma fonte que existe na própria fixture.
+#[test]
+fn as_duas_fixtures_embutidas_nao_colidem_em_fonte_nem_em_olt() {
+    let a = Fixture::carregar_embutido(ModeloNe::Ma5800).expect("fixture ma5800");
+    let b = Fixture::carregar_embutido(ModeloNe::Ma5600t).expect("fixture ma5600t");
+
+    assert_ne!(
+        a.transporte.fontes[0].id, b.transporte.fontes[0].id,
+        "a mesma fonte em dois perfis faz `ne(fonte)` desviar a chamada para o NE errado"
+    );
+    assert_ne!(
+        a.transporte.olts[0].id, b.transporte.olts[0].id,
+        "a mesma OLT em dois perfis é ambígua para qualquer busca por id"
+    );
+
+    for (nome, f) in [("ma5800", &a), ("ma5600t", &b)] {
+        let fonte = &f.transporte.fontes[0].id;
+        assert!(
+            f.transporte.olts.iter().all(|o| &o.fonte == fonte),
+            "em {nome}, alguma OLT aponta para fonte que não existe na fixture"
+        );
+        assert!(
+            f.transporte.fontes[0].credencial_ref.starts_with("cofre://"),
+            "em {nome}, a credencial da fonte não é referência de cofre"
+        );
+    }
+
+    // `Aplicacao::ne(fonte)` devolve a PRIMEIRA fixture que responde à fonte. Simulado aqui: a
+    // fonte de cada perfil tem de identificar um só — é isso que fazia o detalhe da OLT do
+    // MA5600T cair no NE do MA5800.
+    let perfis: [(&Fixture, &str); 2] = [(&a, "ma5800"), (&b, "ma5600t")];
+    for (f, nome) in perfis {
+        let fonte = &f.transporte.fontes[0].id;
+        let donos: Vec<&str> = perfis
+            .iter()
+            .filter(|(g, _)| &g.transporte.fontes[0].id == fonte)
+            .map(|(_, n)| *n)
+            .collect();
+        assert_eq!(donos, vec![nome], "a fonte de {nome} responde por mais de um perfil");
+    }
 }
 
 #[test]
