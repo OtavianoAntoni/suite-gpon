@@ -5,9 +5,10 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
-		"build": "npm run lint:no-anim && vite build",
+		"build": "npm run lint:no-anim && npm run test:filtros && vite build",
 		"build:raw": "vite build",
 		"lint:no-anim": "node scripts/no-animation.mjs",
+		"test:filtros": "node scripts/filtros.test.mjs",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",

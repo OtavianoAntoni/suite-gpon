@@ -27,6 +27,15 @@
 		type Pon,
 		type Ponte
 	} from '#lib/ipc';
+	import {
+		aplicarFiltroPon,
+		contar,
+		ordenarPorQueda,
+		rotuloDoFiltro,
+		FILTROS_BLOQUEADOS,
+		FILTROS_PON,
+		type FiltroPon
+	} from '#lib/filtros';
 
 	let ponte: Ponte | null = null;
 	let demo = $state(false);
@@ -55,6 +64,19 @@
 	let janela = $state(5);
 	let massiva = $state<Massiva | null>(null);
 	let analisando = $state(false);
+
+	// ---------- filtros da tela da PON ----------
+	// A lógica mora em `$lib/filtros` — pura e testada em `scripts/filtros.test.mjs`, que roda
+	// no `npm run build`. Aqui fica só o estado da tela.
+	let filtroPon = $state<FiltroPon>('todas');
+
+	/** ONUs da PON selecionada — já vêm de `list_onus` em `abrirPon` (nada de chamada nova). */
+	let onusDaPon = $derived(
+		ponSel ? (onus[caminhoPon(ponSel.rack, ponSel.subrack, ponSel.slot, ponSel.porta)] ?? []) : []
+	);
+
+	let onusFiltradas = $derived(ordenarPorQueda(aplicarFiltroPon(onusDaPon, filtroPon)));
+	let rotuloFiltroAtual = $derived(rotuloDoFiltro(filtroPon));
 
 	let criterio = $state<'sn' | 'alias' | 'vlan'>('sn');
 	let termo = $state('');
@@ -174,6 +196,7 @@
 	async function abrirPon(p: Pon) {
 		ponSel = p;
 		onuSel = null;
+		filtroPon = 'todas';
 		area = 'inventario';
 		const chave = caminhoPon(p.rack, p.subrack, p.slot, p.porta);
 		if (!onus[chave]) {
@@ -740,6 +763,62 @@
 					{:else if !analisando}
 						<p class="vazio">sem análise ainda.</p>
 					{/if}
+
+					<h2 class="secao">
+						ONUs desta PON <span class="meta">{onusDaPon.length} autorizada(s)</span>
+					</h2>
+
+					<section class="filtros" aria-label="filtros da PON">
+						{#each FILTROS_PON as f (f.id)}
+							<button
+								class="chip"
+								class:ativo={filtroPon === f.id}
+								onclick={() => (filtroPon = f.id)}
+								title={f.dica}
+							>
+								{f.rotulo}<span class="conta">{contar(onusDaPon, f.id)}</span>
+							</button>
+						{/each}
+						{#each FILTROS_BLOQUEADOS as b (b.rotulo)}
+							<span class="chip bloqueado" title={b.motivo}>{b.rotulo}</span>
+						{/each}
+					</section>
+
+					{#if !onusDaPon.length}
+						<p class="vazio">
+							a PON não devolveu nenhuma ONU autorizada — não há o que filtrar. (ONU descoberta e
+							ainda não autorizada é o <b>autofind</b>, que não está no contrato da Fase 1.)
+						</p>
+					{:else if !onusFiltradas.length}
+						<p class="vazio">nenhuma ONU no filtro "{rotuloFiltroAtual}".</p>
+					{:else}
+						<table class="tabela">
+							<thead>
+								<tr>
+									<th>SN</th>
+									<th>ALIAS</th>
+									<th>ESTADO</th>
+									<th>LAST DOWN TIME</th>
+									<th>LAST UP TIME</th>
+									<th>MOTIVO QUEDA</th>
+									<th>DIST. (m)</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each onusFiltradas as o (o.id)}
+									<tr class="clicavel" onclick={() => verOnu(o)} title="abrir o cliente">
+										<td class="mono">{o.sn}</td>
+										<td>{o.nome || '—'}</td>
+										<td>{o.estado}</td>
+										<td>{o.ultima_queda ? horaCurta(o.ultima_queda) : 'não informado'}</td>
+										<td>{o.ultimo_up ? horaCurta(o.ultimo_up) : 'não informado'}</td>
+										<td>{o.motivo_queda ?? 'não informado'}</td>
+										<td>{o.distancia_m ?? '—'}</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{/if}
 				{:else if onuSel}
 					<section class="detalhe">
 						<header class="cabecalho">
@@ -1238,6 +1317,58 @@
 	.vazio {
 		color: var(--cor-texto-suave);
 		padding: 10px;
+	}
+
+	.secao {
+		font-size: 11px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		color: var(--cor-texto-suave);
+		margin: 18px 0 6px;
+	}
+	.secao .meta {
+		text-transform: none;
+		letter-spacing: 0;
+		font-weight: 400;
+		margin-left: 6px;
+	}
+	.filtros {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		align-items: center;
+		margin-bottom: 8px;
+	}
+	.chip {
+		display: inline-flex;
+		align-items: center;
+		border: 1px solid var(--cor-borda);
+		background: var(--cor-superficie);
+		color: inherit;
+		font: inherit;
+		font-size: 12px;
+		height: 26px;
+		padding: 0 10px;
+		cursor: pointer;
+	}
+	.chip.ativo {
+		border-color: var(--cor-acento);
+		color: var(--cor-acento);
+		font-weight: 600;
+	}
+	.chip .conta {
+		margin-left: 6px;
+		font-size: 11px;
+		color: var(--cor-texto-suave);
+	}
+	.chip.ativo .conta {
+		color: var(--cor-acento);
+	}
+	.chip.bloqueado {
+		border-style: dashed;
+		color: var(--cor-texto-suave);
+		cursor: not-allowed;
 	}
 
 	.busca-caixa {

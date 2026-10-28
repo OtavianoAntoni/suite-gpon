@@ -43,7 +43,7 @@ const OLT: Olt = {
 };
 
 const PONS: Pon[] = [
-	{ olt: OLT.id, rack: 1, subrack: 1, slot: 1, porta: 1, rotulo: '1/1/1/1', tecnologia: 'GPON', admin_up: true, split_ratio: 128, onus: 4 },
+	{ olt: OLT.id, rack: 1, subrack: 1, slot: 1, porta: 1, rotulo: '1/1/1/1', tecnologia: 'GPON', admin_up: true, split_ratio: 128, onus: 5 },
 	{ olt: OLT.id, rack: 1, subrack: 1, slot: 1, porta: 2, rotulo: '1/1/1/2', tecnologia: 'GPON', admin_up: true, split_ratio: 128, onus: 0 }
 ];
 
@@ -78,9 +78,13 @@ function onu(
 
 const ONUS: Onu[] = [
 	onu(1, 'cliente-0001', 'online', '2026-10-17T14:02:10-03:00', '2026-10-17T14:06:40-03:00', 'LOS'),
-	onu(2, 'cliente-0002', 'offline', '2026-10-17T14:04:00-03:00', null, 'LOS'),
+	// LOS de verdade na fixture: sem ele o filtro "LOS" do demo mostraria sempre zero.
+	onu(2, 'cliente-0002', 'los', '2026-10-17T14:04:00-03:00', null, 'LOS'),
 	onu(3, 'cliente-0003', 'offline', '2026-10-17T14:06:30-03:00', null, 'DyingGasp'),
-	onu(4, 'cliente-0004', 'online', '2026-10-17T09:15:00-03:00', '2026-10-17T09:16:10-03:00', 'LOS')
+	onu(4, 'cliente-0004', 'online', '2026-10-17T09:15:00-03:00', '2026-10-17T09:16:10-03:00', 'LOS'),
+	// Uma ONU sem hora: é o caso real em que o NE não informa a queda e a tela não pode
+	// transformar ausência em "agora" (SPEC §7.4, "limite honesto").
+	onu(5, 'cliente-0005', 'offline', null, null, null)
 ];
 
 const JANELA_S = (min: number) => min * 60;
