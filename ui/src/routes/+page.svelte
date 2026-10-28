@@ -121,6 +121,35 @@
 		}
 	}
 
+	/** Caminho físico completo de uma PON/ONU: `rack/subrack/slot/porta` (espelho AMS). */
+	function caminhoPon(r: number, sr: number, s: number, p: number): string {
+		return `${r}/${sr}/${s}/${p}`;
+	}
+
+	type NoSlot = { slot: number; pons: Pon[] };
+	type NoSubrack = { subrack: number; slots: NoSlot[] };
+	type NoRack = { rack: number; subracks: NoSubrack[] };
+
+	/** Agrupa as PONs na hierarquia do AMS: NE > Rack > Subrack > Slot > PON. */
+	function hierarquia(pons: Pon[]): NoRack[] {
+		const porRack = new Map<number, Map<number, Map<number, Pon[]>>>();
+		for (const p of pons) {
+			if (!porRack.has(p.rack)) porRack.set(p.rack, new Map());
+			const subracks = porRack.get(p.rack)!;
+			if (!subracks.has(p.subrack)) subracks.set(p.subrack, new Map());
+			const slots = subracks.get(p.subrack)!;
+			if (!slots.has(p.slot)) slots.set(p.slot, []);
+			slots.get(p.slot)!.push(p);
+		}
+		return [...porRack.entries()].map(([rack, subracks]) => ({
+			rack,
+			subracks: [...subracks.entries()].map(([subrack, slots]) => ({
+				subrack,
+				slots: [...slots.entries()].map(([slot, pons]) => ({ slot, pons }))
+			}))
+		}));
+	}
+
 	async function abrirOlt(o: Olt) {
 		oltSel = o;
 		aberto[o.id] = true;
@@ -146,10 +175,15 @@
 		ponSel = p;
 		onuSel = null;
 		area = 'inventario';
-		const chave = `${p.olt}-${p.slot}/${p.porta}`;
+		const chave = caminhoPon(p.rack, p.subrack, p.slot, p.porta);
 		if (!onus[chave]) {
 			try {
-				const pagina = await ponte!.onus(fonteSel!.id, p.olt, { slot: p.slot, porta: p.porta });
+				const pagina = await ponte!.onus(fonteSel!.id, p.olt, {
+					rack: p.rack,
+					subrack: p.subrack,
+					slot: p.slot,
+					porta: p.porta
+				});
 				onus[chave] = pagina.itens;
 			} catch (e) {
 				registrar(`falha ao listar ONUs: ${e}`, 'erro');
@@ -162,7 +196,12 @@
 		if (!ponte || !fonteSel || !ponSel) return;
 		analisando = true;
 		try {
-			massiva = await ponte.massiva(fonteSel.id, ponSel.olt, { slot: ponSel.slot, porta: ponSel.porta }, janela);
+			massiva = await ponte.massiva(fonteSel.id, ponSel.olt, {
+				rack: ponSel.rack,
+				subrack: ponSel.subrack,
+				slot: ponSel.slot,
+				porta: ponSel.porta
+			}, janela);
 			registrar(
 				`PON ${ponSel.rotulo}: ${massiva.com_hora} queda(s) em ${massiva.clusters.length} janela(s) de ${janela} min`,
 				massiva.maior_cluster > 1 ? 'ok' : 'ok'
@@ -225,7 +264,7 @@
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
 		a.href = url;
-		a.download = `massiva-pon-${ponSel?.slot}-${ponSel?.porta}.csv`;
+		a.download = `massiva-pon-${ponSel?.rotulo.replaceAll('/', '-')}.csv`;
 		a.click();
 		URL.revokeObjectURL(url);
 		registrar(`CSV exportado: ${total} ONU(s)`);
@@ -243,6 +282,8 @@
 			previa = await ponte.previaEscrita({
 				tipo,
 				olt: onuSel.olt,
+				rack: onuSel.rack,
+				subrack: onuSel.subrack,
 				slot: onuSel.slot,
 				porta: onuSel.porta,
 				onu: onuSel.id,
@@ -271,6 +312,8 @@
 			previa = await ponte.previaEscrita({
 				tipo: 'autorizar',
 				olt: ponSel.olt,
+				rack: ponSel.rack,
+				subrack: ponSel.subrack,
 				slot: ponSel.slot,
 				porta: ponSel.porta,
 				onu: '',
@@ -297,6 +340,8 @@
 			previa = await ponte.previaEscrita({
 				tipo: 'desautorizar',
 				olt: onuSel.olt,
+				rack: onuSel.rack,
+				subrack: onuSel.subrack,
 				slot: onuSel.slot,
 				porta: onuSel.porta,
 				onu: onuSel.id,
@@ -432,26 +477,51 @@
 											</button>
 											{#if aberto[o.id]}
 												<ul>
-													{#each pons[o.id] ?? [] as p (p.rotulo)}
+													{#each hierarquia(pons[o.id] ?? []) as r (r.rack)}
 														<li>
-															<button class="no n3" class:sel={ponSel?.rotulo === p.rotulo && ponSel?.olt === p.olt} onclick={() => abrirPon(p)}>
-																<span class="seta">·</span>
-																<span class="rotulo">PON {p.rotulo}</span>
-																<span class="meta">{p.onus} ONU</span>
-															</button>
-															{#if ponSel?.rotulo === p.rotulo && ponSel?.olt === p.olt}
-																<ul>
-																	{#each (onus[`${p.olt}-${p.slot}/${p.porta}`] ?? []).slice(0, 8) as u (u.id)}
-																		<li>
-																			<button class="no n4" class:sel={onuSel?.id === u.id} onclick={() => verOnu(u)}>
-																				<span class="seta">·</span>
-																				<span class="rotulo">{u.nome || u.sn}</span>
-																				<span class="meta">{u.estado}</span>
-																			</button>
-																		</li>
-																	{/each}
-																</ul>
-															{/if}
+															<button class="no n3"><span class="seta">▾</span><span class="rotulo">Rack {r.rack}</span></button>
+															<ul>
+																{#each r.subracks as sr (sr.subrack)}
+																	<li>
+																		<button class="no n4"><span class="seta">▾</span><span class="rotulo">Subrack {sr.subrack}</span></button>
+																		<ul>
+																			{#each sr.slots as sl (sl.slot)}
+																				<li>
+																					<button class="no n5"><span class="seta">▾</span><span class="rotulo">Slot {sl.slot}</span></button>
+																					<ul>
+																						{#each sl.pons as p (p.rotulo)}
+																							<li>
+																								<button
+																									class="no n6"
+																									class:sel={ponSel?.rotulo === p.rotulo && ponSel?.olt === p.olt}
+																									onclick={() => abrirPon(p)}
+																								>
+																									<span class="seta">·</span>
+																									<span class="rotulo">PON {p.rotulo}</span>
+																									<span class="meta">{p.onus} ONU</span>
+																								</button>
+																								{#if ponSel?.rotulo === p.rotulo && ponSel?.olt === p.olt}
+																									<ul>
+																										{#each (onus[caminhoPon(p.rack, p.subrack, p.slot, p.porta)] ?? []).slice(0, 8) as u (u.id)}
+																											<li>
+																												<button class="no n7" class:sel={onuSel?.id === u.id} onclick={() => verOnu(u)}>
+																													<span class="seta">·</span>
+																													<span class="rotulo">{u.nome || u.sn}</span>
+																													<span class="meta">{u.estado}</span>
+																												</button>
+																											</li>
+																										{/each}
+																									</ul>
+																								{/if}
+																							</li>
+																						{/each}
+																					</ul>
+																				</li>
+																			{/each}
+																		</ul>
+																	</li>
+																{/each}
+															</ul>
 														</li>
 													{/each}
 												</ul>
@@ -520,7 +590,7 @@
 									<tr class="clicavel" onclick={() => verOnu(u)}>
 										<td class="mono">{u.sn}</td>
 										<td>{u.nome}</td>
-										<td>{u.slot}/{u.porta}</td>
+										<td>{caminhoPon(u.rack, u.subrack, u.slot, u.porta)}</td>
 										<td>{u.estado}</td>
 										<td>{horaCurta(u.ultima_queda)}</td>
 									</tr>
@@ -684,7 +754,7 @@
 							<div><dt>Terminal Type</dt><dd>{onuSel.modelo_hw}</dd></div>
 							<div><dt>Software Version</dt><dd>{onuSel.modelo_sw}</dd></div>
 							<div><dt>Ranging Value (m)</dt><dd>{onuSel.distancia_m ?? 'não informado'}</dd></div>
-							<div><dt>PON</dt><dd>{onuSel.slot}/{onuSel.porta}</dd></div>
+							<div><dt>PON</dt><dd>{caminhoPon(onuSel.rack, onuSel.subrack, onuSel.slot, onuSel.porta)}</dd></div>
 							<div><dt>descrição</dt><dd>{onuSel.descricao || '—'}</dd></div>
 							<div><dt>Last Down Time</dt><dd>{onuSel.ultima_queda ?? 'não informado'}</dd></div>
 							<div><dt>Last Up Time</dt><dd>{onuSel.ultimo_up ?? 'não informado'}</dd></div>

@@ -106,6 +106,8 @@ pub struct OltDto {
 #[derive(Serialize, Clone)]
 pub struct PonDto {
     pub olt: String,
+    pub rack: u8,
+    pub subrack: u8,
     pub slot: u8,
     pub porta: u8,
     pub rotulo: String,
@@ -119,6 +121,8 @@ pub struct PonDto {
 pub struct OnuDto {
     pub id: String,
     pub olt: String,
+    pub rack: u8,
+    pub subrack: u8,
     pub slot: u8,
     pub porta: u8,
     pub sn: String,
@@ -201,6 +205,8 @@ fn onu_dto(o: &gpon_transport::Onu) -> OnuDto {
     OnuDto {
         id: o.id.as_str().to_string(),
         olt: o.olt.as_str().to_string(),
+        rack: o.pon.rack,
+        subrack: o.pon.subrack,
         slot: o.pon.slot,
         porta: o.pon.porta,
         sn: o.sn.clone(),
@@ -217,10 +223,10 @@ fn onu_dto(o: &gpon_transport::Onu) -> OnuDto {
     }
 }
 
-fn onus_de(ne: &Ne, olt: &str, pon: Option<(u8, u8)>, filtro: Option<String>, limit: usize, ordem: OrdemOnu) -> Result<PaginaOnusDto, String> {
+fn onus_de(ne: &Ne, olt: &str, pon: Option<(u8, u8, u8, u8)>, filtro: Option<String>, limit: usize, ordem: OrdemOnu) -> Result<PaginaOnusDto, String> {
     let cmd = CanonicalCmd::ListOnus {
         olt: OltId::novo(olt),
-        pon: pon.map(|(s, p)| PonRef::new(s, p)),
+        pon: pon.map(|(r, sr, s, p)| PonRef::new(r, sr, s, p)),
         filtro,
         segmento: SegmentoOnu::Todas,
         page: Page { offset: 0, limit },
@@ -291,9 +297,11 @@ pub fn pons_de(app: &Aplicacao, fonte: &str, olt: &str) -> Result<Vec<PonDto>, S
             .iter()
             .map(|p| PonDto {
                 olt: p.olt.as_str().to_string(),
+                rack: p.pon.rack,
+                subrack: p.pon.subrack,
                 slot: p.pon.slot,
                 porta: p.pon.porta,
-                rotulo: format!("{}/{}", p.pon.slot, p.pon.porta),
+                rotulo: p.pon.to_string(),
                 tecnologia: p.tecnologia.as_str().to_string(),
                 admin_up: p.admin_up,
                 split_ratio: p.split_ratio,
@@ -381,7 +389,7 @@ pub fn onus_da_pon(
     app: &Aplicacao,
     fonte: &str,
     olt: &str,
-    pon: Option<(u8, u8)>,
+    pon: Option<(u8, u8, u8, u8)>,
     filtro: Option<String>,
     ordem: OrdemOnu,
 ) -> Result<PaginaOnusDto, String> {
@@ -435,6 +443,8 @@ pub fn massiva_de(
     app: &Aplicacao,
     fonte: &str,
     olt: &str,
+    rack: u8,
+    subrack: u8,
     slot: u8,
     porta: u8,
     janela_min: Option<i64>,
@@ -443,7 +453,7 @@ pub fn massiva_de(
     let janela = janela_min.unwrap_or(JANELA_PADRAO_MIN).clamp(1, 240);
     let cmd = CanonicalCmd::ListOnus {
         olt: OltId::novo(olt),
-        pon: Some(PonRef::new(slot, porta)),
+        pon: Some(PonRef::new(rack, subrack, slot, porta)),
         filtro: None,
         segmento: SegmentoOnu::Todas,
         page: Page { offset: 0, limit: 4096 },
@@ -531,6 +541,10 @@ pub fn alarmes_de(
 pub struct PedidoEntrada {
     pub tipo: String,
     pub olt: String,
+    #[serde(default)]
+    pub rack: u8,
+    #[serde(default)]
+    pub subrack: u8,
     pub slot: u8,
     pub porta: u8,
     #[serde(default)]
@@ -589,12 +603,14 @@ pub struct CofreDto {
 
 fn pedido_de(e: PedidoEntrada) -> Result<Pedido, String> {
     match TipoEscrita::de_str(&e.tipo).ok_or_else(|| format!("tipo de escrita desconhecido: {}", e.tipo))? {
-        TipoEscrita::Reset => Ok(Pedido::reset(&e.olt, e.slot, e.porta, &e.onu, &e.sn, &e.nome)),
+        TipoEscrita::Reset => Ok(Pedido::reset(&e.olt, e.rack, e.subrack, e.slot, e.porta, &e.onu, &e.sn, &e.nome)),
         TipoEscrita::Descricao => Ok(Pedido::descricao(
-            &e.olt, e.slot, e.porta, &e.onu, &e.sn, &e.nome, &e.atual, &e.novo,
+            &e.olt, e.rack, e.subrack, e.slot, e.porta, &e.onu, &e.sn, &e.nome, &e.atual, &e.novo,
         )),
         TipoEscrita::Autorizar => Ok(Pedido::autorizar(
             &e.olt,
+            e.rack,
+            e.subrack,
             e.slot,
             e.porta,
             &e.sn,
@@ -602,7 +618,7 @@ fn pedido_de(e: PedidoEntrada) -> Result<Pedido, String> {
             e.perfil.as_deref(),
         )),
         TipoEscrita::Desautorizar => {
-            Ok(Pedido::desautorizar(&e.olt, e.slot, e.porta, &e.onu, &e.sn, &e.nome))
+            Ok(Pedido::desautorizar(&e.olt, e.rack, e.subrack, e.slot, e.porta, &e.onu, &e.sn, &e.nome))
         }
     }
 }
@@ -783,13 +799,15 @@ pub fn listar_onus(
     app: tauri::State<'_, Aplicacao>,
     fonte: String,
     olt: String,
+    rack: Option<u8>,
+    subrack: Option<u8>,
     slot: Option<u8>,
     porta: Option<u8>,
     filtro: Option<String>,
     ordem: Option<String>,
 ) -> Result<PaginaOnusDto, String> {
-    let pon = match (slot, porta) {
-        (Some(s), Some(p)) => Some((s, p)),
+    let pon = match (rack, subrack, slot, porta) {
+        (Some(r), Some(sr), Some(s), Some(p)) => Some((r, sr, s, p)),
         _ => None,
     };
     let ordem = match ordem.as_deref() {
@@ -814,11 +832,13 @@ pub fn massiva(
     app: tauri::State<'_, Aplicacao>,
     fonte: String,
     olt: String,
+    rack: u8,
+    subrack: u8,
     slot: u8,
     porta: u8,
     janela_min: Option<i64>,
 ) -> Result<MassivaDto, String> {
-    massiva_de(&*app, &fonte, &olt, slot, porta, janela_min)
+    massiva_de(&*app, &fonte, &olt, rack, subrack, slot, porta, janela_min)
 }
 
 #[tauri::command]

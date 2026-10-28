@@ -60,19 +60,26 @@ impl Page {
 /// Referência a uma porta PON dentro da OLT.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PonRef {
+    pub rack: u8,
+    pub subrack: u8,
     pub slot: u8,
     pub porta: u8,
 }
 
 impl PonRef {
-    pub const fn new(slot: u8, porta: u8) -> Self {
-        Self { slot, porta }
+    /// Caminho físico completo de uma porta PON, no formato do NE.
+    ///
+    /// `rack/subrack/slot/porta` (ex.: `1/1/1/23` não — `1/1/1/1` para rack 1, subrack 1,
+    /// slot 1, porta PON 1). O espelho é o AMS: NE > Rack > Subrack > Slot > PON Port.
+    /// Rack e subrack **não** são fixos — um NE pode ter vários.
+    pub const fn new(rack: u8, subrack: u8, slot: u8, porta: u8) -> Self {
+        Self { rack, subrack, slot, porta }
     }
 }
 
 impl fmt::Display for PonRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}/{}", self.slot, self.porta)
+        write!(f, "{}/{}/{}/{}", self.rack, self.subrack, self.slot, self.porta)
     }
 }
 
@@ -314,7 +321,7 @@ impl CanonicalCmd {
             Self::ExportInventory { filtro: None },
             Self::AuthorizeOnu {
                 olt: o.clone(),
-                pon: PonRef::new(1, 1),
+                pon: PonRef::new(1, 1, 1, 1),
                 sn: String::new(),
                 modo: AuthMode::Sn,
                 perfil: None,

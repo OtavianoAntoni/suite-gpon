@@ -282,11 +282,13 @@ impl Fixture {
                 }),
 
                 "pon" => {
+                    let rack: u8 = num(&c, "rack", &nome_arq, n)?.unwrap_or(1);
+                    let subrack: u8 = num(&c, "subrack", &nome_arq, n)?.unwrap_or(1);
                     let slot: u8 = num(&c, "slot", &nome_arq, n)?.unwrap_or(0);
                     let porta: u8 = num(&c, "porta", &nome_arq, n)?.unwrap_or(0);
                     t.pons.push(PonPort {
                         olt: OltId::novo(exigir(&c, "olt", &nome_arq, n)?),
-                        pon: PonRef::new(slot, porta),
+                        pon: PonRef::new(rack, subrack, slot, porta),
                         tecnologia: tecnologia(campo(&c, "tech").unwrap_or("")).map_err(erro)?,
                         admin_up: campo(&c, "up").unwrap_or("1") == "1",
                         split_ratio: num(&c, "split", &nome_arq, n)?.unwrap_or(0),
@@ -295,12 +297,14 @@ impl Fixture {
                 }
 
                 "onu" => {
+                    let rack: u8 = num(&c, "rack", &nome_arq, n)?.unwrap_or(1);
+                    let subrack: u8 = num(&c, "subrack", &nome_arq, n)?.unwrap_or(1);
                     let slot: u8 = num(&c, "slot", &nome_arq, n)?.unwrap_or(0);
                     let porta: u8 = num(&c, "porta", &nome_arq, n)?.unwrap_or(0);
                     t.onus.push(Onu {
                         id: OnuId::novo(exigir(&c, "id", &nome_arq, n)?),
                         olt: OltId::novo(exigir(&c, "olt", &nome_arq, n)?),
-                        pon: PonRef::new(slot, porta),
+                        pon: PonRef::new(rack, subrack, slot, porta),
                         sn: exigir(&c, "sn", &nome_arq, n)?.to_string(),
                         mac: campo(&c, "mac").filter(|s| !s.is_empty()).map(str::to_string),
                         modelo_hw: campo(&c, "hw").unwrap_or("").to_string(),

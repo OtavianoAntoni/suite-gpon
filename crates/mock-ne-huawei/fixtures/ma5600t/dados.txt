@@ -8,12 +8,12 @@ fonte|id=lab-1|rotulo=Laboratório MA5600T|host=10.0.0.10|protocolo=ssh+mml|cred
 
 olt|id=olt-ma5600t-1|fonte=lab-1|vendor=Huawei|modelo=MA5600T|serial=48575443E5F6A7B8|ip=10.0.0.12|sw=V800R018C10|uptime=8640000|slots=16|temp=44
 
-pon|olt=olt-ma5600t-1|slot=0|porta=1|tech=gpon|up=1|split=64|onus=3
-pon|olt=olt-ma5600t-1|slot=0|porta=2|tech=epon|up=0|split=32|onus=0
+pon|olt=olt-ma5600t-1|rack=1|subrack=1|slot=1|porta=1|tech=gpon|up=1|split=64|onus=3
+pon|olt=olt-ma5600t-1|rack=1|subrack=1|slot=1|porta=2|tech=epon|up=0|split=32|onus=0
 
-onu|id=onu-11|olt=olt-ma5600t-1|slot=0|porta=1|sn=48575443E5F6A7B9|mac=00:1a:2b:3c:4d:61|hw=HG8310M|sw=V5R019C10S270|vendor=Huawei|nome=cliente-1001|desc=loja-2|estado=online|dist=2310|queda=2026-10-15T09:12:00-03:00|up=2026-10-15T09:20:00-03:00|motivo=DyingGasp
-onu|id=onu-12|olt=olt-ma5600t-1|slot=0|porta=1|sn=48575443E5F6A7BA|hw=HG8310M|sw=V5R019C10S270|vendor=Huawei|nome=cliente-1002|desc=|estado=offline|dist=|queda=2026-10-14T18:03:00-03:00|up=|motivo=LOS
-onu|id=onu-13|olt=olt-ma5600t-1|slot=0|porta=1|sn=48575443E5F6A7BB|mac=00:1a:2b:3c:4d:63|hw=HG8010H|sw=V5R019C10S270|vendor=Huawei|nome=cliente-1003|desc=oficina|estado=los|dist=|queda=|up=|motivo=
+onu|id=onu-11|olt=olt-ma5600t-1|rack=1|subrack=1|slot=1|porta=1|sn=48575443E5F6A7B9|mac=00:1a:2b:3c:4d:61|hw=HG8310M|sw=V5R019C10S270|vendor=Huawei|nome=cliente-1001|desc=loja-2|estado=online|dist=2310|queda=2026-10-15T09:12:00-03:00|up=2026-10-15T09:20:00-03:00|motivo=DyingGasp
+onu|id=onu-12|olt=olt-ma5600t-1|rack=1|subrack=1|slot=1|porta=1|sn=48575443E5F6A7BA|hw=HG8310M|sw=V5R019C10S270|vendor=Huawei|nome=cliente-1002|desc=|estado=offline|dist=|queda=2026-10-14T18:03:00-03:00|up=|motivo=LOS
+onu|id=onu-13|olt=olt-ma5600t-1|rack=1|subrack=1|slot=1|porta=1|sn=48575443E5F6A7BB|mac=00:1a:2b:3c:4d:63|hw=HG8010H|sw=V5R019C10S270|vendor=Huawei|nome=cliente-1003|desc=oficina|estado=los|dist=|queda=|up=|motivo=
 
 perfil|nome=line-512M|kind=line|versao=2
 perfil|nome=dba-512M|kind=dba|versao=2

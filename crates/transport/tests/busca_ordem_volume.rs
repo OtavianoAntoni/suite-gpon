@@ -24,7 +24,7 @@ fn onu(id: &str, sn: &str, nome: &str, desc: &str, ultimo: Option<&str>) -> Onu 
     Onu {
         id: OnuId::novo(id),
         olt: olt(),
-        pon: PonRef::new(0, 1),
+        pon: PonRef::new(1, 1, 1, 1),
         sn: sn.to_string(),
         mac: None,
         modelo_hw: "HG8245H".into(),

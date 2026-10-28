@@ -100,6 +100,8 @@ export type OltDetalhe = {
 
 export type Pon = {
 	olt: string;
+	rack: number;
+	subrack: number;
 	slot: number;
 	porta: number;
 	rotulo: string;
@@ -112,6 +114,8 @@ export type Pon = {
 export type Onu = {
 	id: string;
 	olt: string;
+	rack: number;
+	subrack: number;
 	slot: number;
 	porta: number;
 	sn: string;
@@ -212,6 +216,8 @@ export type AuditoriaItem = {
 export type PedidoEscrita = {
 	tipo: 'reset' | 'descricao' | 'autorizar' | 'desautorizar';
 	olt: string;
+	rack: number;
+	subrack: number;
 	slot: number;
 	porta: number;
 	onu: string;
@@ -232,9 +238,9 @@ export type Ponte = {
 	/** `get_onu`: a ONU pelo id, mesmo quando ela não está na página carregada. */
 	detalheOnu(fonte: string, onu: string): Promise<Onu>;
 	pons(fonte: string, olt: string): Promise<Pon[]>;
-	onus(fonte: string, olt: string, pon?: { slot: number; porta: number }, ordem?: string): Promise<PaginaOnus>;
+	onus(fonte: string, olt: string, pon?: { rack: number; subrack: number; slot: number; porta: number }, ordem?: string): Promise<PaginaOnus>;
 	buscar(fonte: string, criterio: string, valor: string): Promise<Busca>;
-	massiva(fonte: string, olt: string, pon: { slot: number; porta: number }, janelaMin: number): Promise<Massiva>;
+	massiva(fonte: string, olt: string, pon: { rack: number; subrack: number; slot: number; porta: number }, janelaMin: number): Promise<Massiva>;
 	alarmes(fonte: string, filtro?: string): Promise<Alarme[]>;
 	previaEscrita(pedido: PedidoEscrita): Promise<Previa>;
 	confirmarEscrita(token: string): Promise<Confirmacao>;
@@ -255,6 +261,8 @@ export const ponte: Ponte = {
 		real<PaginaOnus>('listar_onus', {
 			fonte,
 			olt,
+			rack: pon?.rack ?? null,
+			subrack: pon?.subrack ?? null,
 			slot: pon?.slot ?? null,
 			porta: pon?.porta ?? null,
 			filtro: null,
@@ -262,7 +270,15 @@ export const ponte: Ponte = {
 		}),
 	buscar: (fonte, criterio, valor) => real<Busca>('buscar_onu', { fonte, criterio, valor }),
 	massiva: (fonte, olt, pon, janelaMin) =>
-		real<Massiva>('massiva', { fonte, olt, slot: pon.slot, porta: pon.porta, janelaMin }),
+		real<Massiva>('massiva', {
+			fonte,
+			olt,
+			rack: pon.rack,
+			subrack: pon.subrack,
+			slot: pon.slot,
+			porta: pon.porta,
+			janelaMin
+		}),
 	alarmes: (fonte, filtro = undefined) => real<Alarme[]>('listar_alarmes', { fonte, filtro: filtro ?? null }),
 	previaEscrita: (pedido) => real<Previa>('previa_escrita', { pedido }),
 	confirmarEscrita: (token) => real<Confirmacao>('confirmar_escrita', { token }),

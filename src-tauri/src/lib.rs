@@ -177,33 +177,35 @@ mod tests {
         let olt = ne::olts_de(&app, &fonte).unwrap()[0].id.clone();
         let pon = ne::pons_de(&app, &fonte, &olt).unwrap()[0].clone();
 
-        let r = ne::massiva_de(&app, &fonte, &olt, pon.slot, pon.porta, Some(5)).unwrap();
+        let r = ne::massiva_de(&app, &fonte, &olt, pon.rack, pon.subrack, pon.slot, pon.porta, Some(5)).unwrap();
         assert_eq!(r.janela_min, 5);
         assert_eq!(r.com_hora + r.sem_hora, pon.onus as usize, "toda ONU da PON entra na conta");
         assert!(r.maior_cluster >= 1);
     }
 
-    fn app_com_onu() -> (ne::Aplicacao, String, String, String, String, u8, u8) {
+    fn app_com_onu() -> (ne::Aplicacao, String, String, String, String, u8, u8, u8, u8) {
         let app = ne::Aplicacao::carregar();
         let fonte = ne::fontes_de(&app)[0].id.clone();
         let olt = ne::olts_de(&app, &fonte).unwrap()[0].id.clone();
         let pon = ne::pons_de(&app, &fonte, &olt).unwrap()[0].clone();
-        let onu = ne::onus_da_pon(&app, &fonte, &olt, Some((pon.slot, pon.porta)), None, gpon_transport::OrdemOnu::Sn)
+        let onu = ne::onus_da_pon(&app, &fonte, &olt, Some((pon.rack, pon.subrack, pon.slot, pon.porta)), None, gpon_transport::OrdemOnu::Sn)
             .unwrap()
             .itens[0]
             .clone();
-        (app, fonte, olt, onu.id, onu.sn, pon.slot, pon.porta)
+        (app, fonte, olt, onu.id, onu.sn, pon.rack, pon.subrack, pon.slot, pon.porta)
     }
 
     /// O caminho completo de uma escrita: prévia → confirmação → ack → auditoria.
     #[test]
     fn escrita_exige_previa_e_vai_para_a_auditoria() {
-        let (app, _fonte, olt, onu, sn, slot, porta) = app_com_onu();
+        let (app, _fonte, olt, onu, sn, rack, subrack, slot, porta) = app_com_onu();
         let previa = ne::previa_escrita_de(
             &app,
             ne::PedidoEntrada {
                 tipo: "reset".into(),
                 olt: olt.clone(),
+                rack,
+                subrack,
                 slot,
                 porta,
                 onu: onu.clone(),
@@ -231,11 +233,11 @@ mod tests {
     /// Token de uso único: a segunda confirmação falha **e fica auditada como falha**.
     #[test]
     fn confirmar_duas_vezes_falha_e_registra_a_tentativa() {
-        let (app, _f, olt, onu, sn, slot, porta) = app_com_onu();
+        let (app, _f, olt, onu, sn, rack, subrack, slot, porta) = app_com_onu();
         let previa = ne::previa_escrita_de(
             &app,
             ne::PedidoEntrada {
-                tipo: "reset".into(), olt, slot, porta, onu, sn,
+                tipo: "reset".into(), olt, rack, subrack, slot, porta, onu, sn,
                 nome: String::new(), atual: String::new(), novo: String::new(),
                 modo: None, perfil: None,
             },
@@ -253,11 +255,11 @@ mod tests {
     /// Prévia de alvo fantasma não emite token.
     #[test]
     fn previa_recusa_onu_que_nao_existe() {
-        let (app, _f, olt, _onu, sn, slot, porta) = app_com_onu();
+        let (app, _f, olt, _onu, sn, rack, subrack, slot, porta) = app_com_onu();
         let e = ne::previa_escrita_de(
             &app,
             ne::PedidoEntrada {
-                tipo: "reset".into(), olt, slot, porta, onu: "onu-fantasma".into(), sn,
+                tipo: "reset".into(), olt, rack, subrack, slot, porta, onu: "onu-fantasma".into(), sn,
                 nome: String::new(), atual: String::new(), novo: String::new(),
                 modo: None, perfil: None,
             },
@@ -270,8 +272,8 @@ mod tests {
     /// Descrição igual à atual não vira escrita (evita tocar o NE à toa).
     #[test]
     fn descricao_igual_nao_gera_escrita() {
-        let (app, fonte, olt, onu, sn, slot, porta) = app_com_onu();
-        let atual = ne::onus_da_pon(&app, &fonte, &olt, Some((slot, porta)), None, gpon_transport::OrdemOnu::Sn)
+        let (app, fonte, olt, onu, sn, rack, subrack, slot, porta) = app_com_onu();
+        let atual = ne::onus_da_pon(&app, &fonte, &olt, Some((rack, subrack, slot, porta)), None, gpon_transport::OrdemOnu::Sn)
             .unwrap()
             .itens
             .iter()
@@ -282,7 +284,7 @@ mod tests {
         let e = ne::previa_escrita_de(
             &app,
             ne::PedidoEntrada {
-                tipo: "descricao".into(), olt, slot, porta, onu, sn,
+                tipo: "descricao".into(), olt, rack, subrack, slot, porta, onu, sn,
                 nome: String::new(), atual: atual.clone(), novo: atual,
                 modo: None, perfil: None,
             },

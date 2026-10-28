@@ -57,6 +57,8 @@ impl TipoEscrita {
 pub struct Pedido {
     pub tipo: TipoEscrita,
     pub olt: String,
+    pub rack: u8,
+    pub subrack: u8,
     pub slot: u8,
     pub porta: u8,
     pub onu: String,
@@ -71,10 +73,12 @@ pub struct Pedido {
 }
 
 impl Pedido {
-    pub fn reset(olt: &str, slot: u8, porta: u8, onu: &str, sn: &str, nome: &str) -> Self {
+    pub fn reset(olt: &str, rack: u8, subrack: u8, slot: u8, porta: u8, onu: &str, sn: &str, nome: &str) -> Self {
         Self {
             tipo: TipoEscrita::Reset,
             olt: olt.into(),
+            rack,
+            subrack,
             slot,
             porta,
             onu: onu.into(),
@@ -89,6 +93,8 @@ impl Pedido {
 
     pub fn descricao(
         olt: &str,
+        rack: u8,
+        subrack: u8,
         slot: u8,
         porta: u8,
         onu: &str,
@@ -100,6 +106,8 @@ impl Pedido {
         Self {
             tipo: TipoEscrita::Descricao,
             olt: olt.into(),
+            rack,
+            subrack,
             slot,
             porta,
             onu: onu.into(),
@@ -112,10 +120,12 @@ impl Pedido {
         }
     }
 
-    pub fn autorizar(olt: &str, slot: u8, porta: u8, sn: &str, modo: &str, perfil: Option<&str>) -> Self {
+    pub fn autorizar(olt: &str, rack: u8, subrack: u8, slot: u8, porta: u8, sn: &str, modo: &str, perfil: Option<&str>) -> Self {
         Self {
             tipo: TipoEscrita::Autorizar,
             olt: olt.into(),
+            rack,
+            subrack,
             slot,
             porta,
             onu: String::new(),
@@ -128,10 +138,12 @@ impl Pedido {
         }
     }
 
-    pub fn desautorizar(olt: &str, slot: u8, porta: u8, onu: &str, sn: &str, nome: &str) -> Self {
+    pub fn desautorizar(olt: &str, rack: u8, subrack: u8, slot: u8, porta: u8, onu: &str, sn: &str, nome: &str) -> Self {
         Self {
             tipo: TipoEscrita::Desautorizar,
             olt: olt.into(),
+            rack,
+            subrack,
             slot,
             porta,
             onu: onu.into(),
@@ -152,15 +164,20 @@ impl Pedido {
             format!("{} — {} ({})", self.sn, self.nome, self.onu)
         };
         match self.tipo {
-            TipoEscrita::Reset => format!("reiniciar a ONU {alvo} na PON {}/{}", self.slot, self.porta),
+            TipoEscrita::Reset => format!(
+                "reiniciar a ONU {alvo} na PON {}/{}/{}/{}",
+                self.rack, self.subrack, self.slot, self.porta
+            ),
             TipoEscrita::Descricao => format!(
                 "mudar a descrição de {alvo}: {:?} → {:?}",
                 self.texto_anterior.clone().unwrap_or_default(),
                 self.texto.clone().unwrap_or_default()
             ),
             TipoEscrita::Autorizar => format!(
-                "autorizar a ONU {} na PON {}/{} (modo {})",
+                "autorizar a ONU {} na PON {}/{}/{}/{} (modo {})",
                 self.sn,
+                self.rack,
+                self.subrack,
                 self.slot,
                 self.porta,
                 self.modo.clone().unwrap_or_else(|| "sn".into())
@@ -181,7 +198,7 @@ impl Pedido {
             },
             TipoEscrita::Autorizar => CanonicalCmd::AuthorizeOnu {
                 olt: OltId::novo(&self.olt),
-                pon: PonRef::new(self.slot, self.porta),
+                pon: PonRef::new(self.rack, self.subrack, self.slot, self.porta),
                 sn: self.sn.clone(),
                 modo: match self.modo.as_deref() {
                     Some("loid") => AuthMode::Loid,
@@ -462,13 +479,15 @@ mod testes {
     use super::*;
 
     fn pedido_reset() -> Pedido {
-        Pedido::reset("olt-ma5800-1", 0, 1, "onu-1", "48575443A1B2C3D4", "cliente-0001")
+        Pedido::reset("olt-ma5800-1", 1, 1, 1, 1, "onu-1", "48575443A1B2C3D4", "cliente-0001")
     }
 
     fn pedido_desc(novo: &str) -> Pedido {
         Pedido::descricao(
             "olt-ma5800-1",
-            0,
+            1,
+            1,
+            1,
             1,
             "onu-1",
             "48575443A1B2C3D4",
@@ -553,13 +572,13 @@ mod testes {
     fn resumo_diz_o_que_vai_acontecer() {
         assert_eq!(
             pedido_reset().resumo(),
-            "reiniciar a ONU 48575443A1B2C3D4 — cliente-0001 (onu-1) na PON 0/1"
+            "reiniciar a ONU 48575443A1B2C3D4 — cliente-0001 (onu-1) na PON 1/1/1/1"
         );
         assert_eq!(
             pedido_desc("loja").resumo(),
             "mudar a descrição de 48575443A1B2C3D4 — cliente-0001 (onu-1): \"portaria\" → \"loja\""
         );
-        assert!(Pedido::desautorizar("o", 0, 1, "onu-1", "SN", "n").resumo().contains("perde o serviço"));
+        assert!(Pedido::desautorizar("o", 1, 1, 1, 1, "onu-1", "SN", "n").resumo().contains("perde o serviço"));
     }
 
     #[test]
@@ -567,11 +586,11 @@ mod testes {
         assert!(matches!(pedido_reset().comando(), CanonicalCmd::ResetOnu { .. }));
         assert!(matches!(pedido_desc("x").comando(), CanonicalCmd::SetOnuDescription { .. }));
         assert!(matches!(
-            Pedido::desautorizar("o", 0, 1, "onu-1", "SN", "n").comando(),
+            Pedido::desautorizar("o", 1, 1, 1, 1, "onu-1", "SN", "n").comando(),
             CanonicalCmd::DeauthorizeOnu { .. }
         ));
         assert!(matches!(
-            Pedido::autorizar("o", 0, 1, "SN", "sn", None).comando(),
+            Pedido::autorizar("o", 1, 1, 1, 1, "SN", "sn", None).comando(),
             CanonicalCmd::AuthorizeOnu { .. }
         ));
     }

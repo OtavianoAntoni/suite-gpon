@@ -3,8 +3,8 @@
 # Formato: uma linha por registro, campos separados por "|", primeiro campo = tipo.
 #   fonte|id=..|rotulo=..|host=..|protocolo=..|credencial_ref=..
 #   olt|id=..|fonte=..|vendor=..|modelo=..|serial=..|ip=..|sw=..|uptime=..|slots=..|temp=..
-#   pon|olt=..|slot=..|porta=..|tech=gpon|epon|xgs|up=0|1|split=..|onus=..
-#   onu|id=..|olt=..|slot=..|porta=..|sn=..|mac=..|hw=..|sw=..|vendor=..|nome=..|desc=..|estado=online|offline|los|dist=..|queda=..|up=..|motivo=..
+#   pon|olt=..|rack=..|subrack=..|slot=..|porta=..|tech=gpon|epon|xgs|up=0|1|split=..|onus=..
+#   onu|id=..|olt=..|rack=..|subrack=..|slot=..|porta=..|sn=..|mac=..|hw=..|sw=..|vendor=..|nome=..|desc=..|estado=online|offline|los|dist=..|queda=..|up=..|motivo=..
 #   perfil|nome=..|kind=line|dba|bandwidth|qinq|vlan|voip|onu_type|capability_set|versao=..
 #   alarme|id=..|sev=critical|major|minor|warning|info|olt=..|objeto=..|tipo=..|primeira=..|ultima=..|ack=0|1
 #
@@ -15,11 +15,11 @@ fonte|id=lab-1|rotulo=Laboratório MA5800|host=10.0.0.10|protocolo=ssh+mml|crede
 
 olt|id=olt-ma5800-1|fonte=lab-1|vendor=Huawei|modelo=MA5800-X7|serial=48575443A1B2C3D4|ip=10.0.0.11|sw=V100R021C10|uptime=1296000|slots=17|temp=41
 
-pon|olt=olt-ma5800-1|slot=0|porta=1|tech=gpon|up=1|split=128|onus=2
-pon|olt=olt-ma5800-1|slot=0|porta=2|tech=gpon|up=1|split=64|onus=0
+pon|olt=olt-ma5800-1|rack=1|subrack=1|slot=1|porta=1|tech=gpon|up=1|split=128|onus=2
+pon|olt=olt-ma5800-1|rack=1|subrack=1|slot=1|porta=2|tech=gpon|up=1|split=64|onus=0
 
-onu|id=onu-1|olt=olt-ma5800-1|slot=0|porta=1|sn=48575443A1B2C3D4|mac=00:1a:2b:3c:4d:5e|hw=HG8245H|sw=V5R019C10S270|vendor=Huawei|nome=cliente-0001|desc=portaria|estado=online|dist=1240|queda=2026-10-16T21:40:00-03:00|up=2026-10-16T21:44:00-03:00|motivo=LOS
-onu|id=onu-2|olt=olt-ma5800-1|slot=0|porta=1|sn=48575443A1B2C3D5|hw=HG8010H|sw=V5R019C10S270|vendor=Huawei|nome=cliente-0002|desc=|estado=los|dist=|queda=2026-10-16T22:10:00-03:00|up=|motivo=LOS
+onu|id=onu-1|olt=olt-ma5800-1|rack=1|subrack=1|slot=1|porta=1|sn=48575443A1B2C3D4|mac=00:1a:2b:3c:4d:5e|hw=HG8245H|sw=V5R019C10S270|vendor=Huawei|nome=cliente-0001|desc=portaria|estado=online|dist=1240|queda=2026-10-16T21:40:00-03:00|up=2026-10-16T21:44:00-03:00|motivo=LOS
+onu|id=onu-2|olt=olt-ma5800-1|rack=1|subrack=1|slot=1|porta=1|sn=48575443A1B2C3D5|hw=HG8010H|sw=V5R019C10S270|vendor=Huawei|nome=cliente-0002|desc=|estado=los|dist=|queda=2026-10-16T22:10:00-03:00|up=|motivo=LOS
 
 perfil|nome=line-1G|kind=line|versao=1
 perfil|nome=dba-1G|kind=dba|versao=1

@@ -117,7 +117,7 @@ fn verifica_op05_list_pon_ports(f: &Fixture, e: &Expectativa) {
     match r {
         CanonicalResult::PonPorts(v) => {
             assert_eq!(v.len(), e.pons, "portas PON do perfil");
-            let primeira = v.iter().find(|p| p.pon == PonRef::new(0, 1)).expect("porta 0/1");
+            let primeira = v.iter().find(|p| p.pon == PonRef::new(1, 1, 1, 1)).expect("porta 0/1");
             assert_eq!(primeira.split_ratio, e.split, "split ratio do perfil");
             assert!(primeira.admin_up);
         }
@@ -248,7 +248,7 @@ fn verifica_op13_authorize_onu(f: &Fixture) {
     let sn = "48575443000000AA";
     let r = bloquear(f.transporte.exec(CanonicalCmd::AuthorizeOnu {
         olt: olt(f),
-        pon: PonRef::new(0, 1),
+        pon: PonRef::new(1, 1, 1, 1),
         sn: sn.to_string(),
         modo: AuthMode::Sn,
         perfil: Some("line".into()),

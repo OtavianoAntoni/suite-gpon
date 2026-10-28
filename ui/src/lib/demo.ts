@@ -43,8 +43,8 @@ const OLT: Olt = {
 };
 
 const PONS: Pon[] = [
-	{ olt: OLT.id, slot: 0, porta: 1, rotulo: '0/1', tecnologia: 'GPON', admin_up: true, split_ratio: 128, onus: 4 },
-	{ olt: OLT.id, slot: 0, porta: 2, rotulo: '0/2', tecnologia: 'GPON', admin_up: true, split_ratio: 128, onus: 0 }
+	{ olt: OLT.id, rack: 1, subrack: 1, slot: 1, porta: 1, rotulo: '1/1/1/1', tecnologia: 'GPON', admin_up: true, split_ratio: 128, onus: 4 },
+	{ olt: OLT.id, rack: 1, subrack: 1, slot: 1, porta: 2, rotulo: '1/1/1/2', tecnologia: 'GPON', admin_up: true, split_ratio: 128, onus: 0 }
 ];
 
 function onu(
@@ -58,7 +58,9 @@ function onu(
 	return {
 		id: `onu-${i}`,
 		olt: OLT.id,
-		slot: 0,
+		rack: 1,
+		subrack: 1,
+		slot: 1,
 		porta: 1,
 		sn: `48575443A1B2C3D${i}`,
 		nome,

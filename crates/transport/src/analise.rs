@@ -182,7 +182,7 @@ mod testes {
         Onu {
             id: OnuId::novo(&format!("id-{sn}")),
             olt: OltId::novo("olt-1"),
-            pon: PonRef::new(0, 1),
+            pon: PonRef::new(1, 1, 1, 1),
             sn: sn.into(),
             mac: None,
             modelo_hw: "HG8245H".into(),

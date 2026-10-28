@@ -94,7 +94,7 @@ impl InMemoryTransport {
         let olt_b = OltId::novo("olt-ma5600t-1");
         t.pons.push(PonPort {
             olt: olt_a.clone(),
-            pon: PonRef::new(0, 1),
+            pon: PonRef::new(1, 1, 1, 1),
             tecnologia: Tecnologia::Gpon,
             admin_up: true,
             split_ratio: 128,
@@ -102,7 +102,7 @@ impl InMemoryTransport {
         });
         t.pons.push(PonPort {
             olt: olt_b.clone(),
-            pon: PonRef::new(0, 1),
+            pon: PonRef::new(1, 1, 1, 1),
             tecnologia: Tecnologia::Gpon,
             admin_up: true,
             split_ratio: 64,
@@ -112,7 +112,7 @@ impl InMemoryTransport {
         t.onus.push(Onu {
             id: OnuId::novo("onu-1"),
             olt: olt_a.clone(),
-            pon: PonRef::new(0, 1),
+            pon: PonRef::new(1, 1, 1, 1),
             sn: "48575443A1B2C3D4".into(),
             mac: Some("00:1a:2b:3c:4d:5e".into()),
             modelo_hw: "HG8245H".into(),
@@ -129,7 +129,7 @@ impl InMemoryTransport {
         t.onus.push(Onu {
             id: OnuId::novo("onu-2"),
             olt: olt_a,
-            pon: PonRef::new(0, 1),
+            pon: PonRef::new(1, 1, 1, 1),
             sn: "48575443A1B2C3D5".into(),
             mac: None,
             modelo_hw: "HG8010H".into(),
@@ -146,7 +146,7 @@ impl InMemoryTransport {
         t.onus.push(Onu {
             id: OnuId::novo("onu-3"),
             olt: olt_b,
-            pon: PonRef::new(0, 1),
+            pon: PonRef::new(1, 1, 1, 1),
             sn: "48575443E5F6A7B9".into(),
             mac: None,
             modelo_hw: "HG8310M".into(),
@@ -255,7 +255,7 @@ impl InMemoryTransport {
                 let _ = self.olt(&olt)?;
                 let mut pons: Vec<PonPort> =
                     self.pons.iter().filter(|p| p.olt == olt).cloned().collect();
-                pons.sort_by_key(|p| (p.pon.slot, p.pon.porta));
+                pons.sort_by_key(|p| (p.pon.rack, p.pon.subrack, p.pon.slot, p.pon.porta));
                 Ok(CanonicalResult::PonPorts(pons))
             }
 
