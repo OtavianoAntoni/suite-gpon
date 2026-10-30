@@ -22,7 +22,11 @@ export const FILTROS_PON: { id: FiltroPon; rotulo: string; dica: string }[] = [
 	},
 	{ id: 'online', rotulo: 'online', dica: 'estado devolvido pelo NE: online' },
 	{ id: 'offline', rotulo: 'offline', dica: 'estado devolvido pelo NE: offline' },
-	{ id: 'los', rotulo: 'LOS', dica: 'estado devolvido pelo NE: LOS (perda de sinal)' },
+	{
+		id: 'los',
+		rotulo: 'LOS',
+		dica: 'perda de sinal — é o alarme de ONU que a operação usa (equivale ao alarme de ONU do AMS). Alarme de placa/porta fica na aba Alarmes.'
+	},
 	{
 		id: 'sem_hora',
 		rotulo: 'sem hora',
@@ -40,11 +44,6 @@ export const FILTROS_BLOQUEADOS: { rotulo: string; motivo: string }[] = [
 	{
 		rotulo: 'multicast',
 		motivo: 'Multicast Sources depende do serviço da ONU (list_services) — Fase 2.'
-	},
-	{
-		rotulo: 'alarmes',
-		motivo:
-			'o alarme do NE não traz o caminho da PON no contrato atual (objeto é texto livre, ex.: "0/1/13"). Filtrar por prefixo seria adivinhar — Fase 2, com o objeto estruturado.'
 	},
 	{ rotulo: 'TCA', motivo: 'TCA é limiar de desempenho (get_performance) — Fase 2.' },
 	{ rotulo: 'PM', motivo: 'PM é medição de desempenho (get_performance) — Fase 2.' }

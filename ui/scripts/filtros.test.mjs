@@ -127,9 +127,13 @@ confere('seis filtros ativos, com ids únicos', () => {
 	assert.equal(rotuloDoFiltro('los'), 'LOS');
 });
 
-confere('cinco pastas do AMS bloqueadas, todas com motivo escrito', () => {
-	assert.equal(FILTROS_BLOQUEADOS.length, 5);
+confere('quatro pastas do AMS bloqueadas, todas com motivo escrito', () => {
+	assert.equal(FILTROS_BLOQUEADOS.length, 4);
 	for (const b of FILTROS_BLOQUEADOS) assert.ok(b.motivo.trim().length > 10, b.rotulo);
+});
+
+confere("'alarmes' não aparece como bloqueado — alarme de ONU é o chip LOS (decisão do dono, 2026-10-30)", () => {
+	assert.ok(!FILTROS_BLOQUEADOS.some((b) => b.rotulo.toLowerCase() === 'alarmes'));
 });
 
 confere('bloqueado não colide com filtro ativo (nada de chip clicável e travado ao mesmo tempo)', () => {
